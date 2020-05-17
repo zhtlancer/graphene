@@ -47,6 +47,7 @@
  *
  */
 
+#include "protected_file_format.h"
 #include "protected_files_internal.h"
 
 #ifdef IN_PAL
@@ -123,22 +124,6 @@ static bool g_initialized = false;
 pf_status_t g_last_error;
 
 // file_crypto.cpp
-#define MASTER_KEY_NAME       "SGX-PROTECTED-FS-MASTER-KEY"
-#define RANDOM_KEY_NAME       "SGX-PROTECTED-FS-RANDOM-KEY"
-#define METADATA_KEY_NAME     "SGX-PROTECTED-FS-METADATA-KEY"
-#define MAX_LABEL_LEN         64
-#define MAX_MASTER_KEY_USAGES 65536
-
-typedef struct {
-    uint32_t index;
-    char label[MAX_LABEL_LEN];
-    uint64_t node_number; // context 1
-    union { // context 2
-        pf_mac_t nonce16;
-        pf_keyid_t nonce32; // sgx_key_id_t
-    };
-    uint32_t output_len; // in bits
-} kdf_input_t;
 
 static bool ipf_generate_secure_blob(pf_context_t pf, pf_key_t* key, const char* label,
                                      uint64_t physical_node_number, pf_mac_t* output) {

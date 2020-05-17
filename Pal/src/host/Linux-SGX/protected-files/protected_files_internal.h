@@ -50,104 +50,14 @@
 #ifndef PROTECTED_FILES_INTERNAL_H_
 #define PROTECTED_FILES_INTERNAL_H_
 
-/* for SSIZE_MAX */
-#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
-#include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "list.h"
 #include "lru_cache.h"
 #include "protected_files.h"
-
-#define SGX_FILE_ID            0x5347585F46494C45 /* SGX_FILE */
-#define SGX_FILE_MAJOR_VERSION 0x01
-#define SGX_FILE_MINOR_VERSION 0x00
-
-#pragma pack(push, 1)
-
-typedef struct _meta_data_plain {
-    uint64_t file_id;
-    uint8_t  major_version;
-    uint8_t  minor_version;
-
-    pf_keyid_t meta_data_key_id;
-
-    pf_mac_t meta_data_gmac;
-    uint8_t  update_flag;
-} meta_data_plain_t;
-
-// these are all defined as relative to node size, so we can decrease node size in tests
-// and have deeper tree
-#define FILENAME_MAX_LEN      260
-#define PATHNAME_MAX_LEN      (512)
-#define FULLNAME_MAX_LEN      (PATHNAME_MAX_LEN + FILENAME_MAX_LEN)
-#define RECOVERY_FILE_MAX_LEN (FULLNAME_MAX_LEN + 10)
-
-
-#define MD_USER_DATA_SIZE (PF_NODE_SIZE*3/4)  // 3072
-static_assert(MD_USER_DATA_SIZE == 3072, "bad struct size");
-
-typedef struct _meta_data_encrypted {
-    char     clean_filename[FULLNAME_MAX_LEN];
-    int64_t  size;
-    pf_key_t mht_key;
-    pf_mac_t mht_gmac;
-    uint8_t  data[MD_USER_DATA_SIZE];
-} meta_data_encrypted_t;
-
-typedef uint8_t meta_data_encrypted_blob_t[sizeof(meta_data_encrypted_t)];
-
-#define META_DATA_NODE_SIZE PF_NODE_SIZE
-static_assert(PF_NODE_SIZE <= SSIZE_MAX, "PF_NODE_SIZE <= SSIZE_MAX");
-
-typedef uint8_t meta_data_padding_t[META_DATA_NODE_SIZE
-    - (sizeof(meta_data_plain_t) + sizeof(meta_data_encrypted_blob_t))];
-
-typedef struct _meta_data_node {
-    meta_data_plain_t          plain_part;
-    meta_data_encrypted_blob_t encrypted_part;
-    meta_data_padding_t        padding;
-} meta_data_node_t;
-
-static_assert(sizeof(meta_data_node_t) == PF_NODE_SIZE, "sizeof(meta_data_node_t)");
-
-typedef struct _data_node_crypto {
-    pf_key_t key;
-    pf_mac_t gmac;
-} gcm_crypto_data_t;
-
-// for PF_NODE_SIZE == 4096, we have 96 attached data nodes and 32 mht child nodes
-// for PF_NODE_SIZE == 2048, we have 48 attached data nodes and 16 mht child nodes
-// for PF_NODE_SIZE == 1024, we have 24 attached data nodes and 8 mht child nodes
-// 3/4 of the node size is dedicated to data nodes
-#define ATTACHED_DATA_NODES_COUNT ((PF_NODE_SIZE/sizeof(gcm_crypto_data_t))*3/4)
-static_assert(ATTACHED_DATA_NODES_COUNT == 96, "ATTACHED_DATA_NODES_COUNT");
-// 1/4 of the node size is dedicated to child mht nodes
-#define CHILD_MHT_NODES_COUNT ((PF_NODE_SIZE/sizeof(gcm_crypto_data_t))*1/4)
-static_assert(CHILD_MHT_NODES_COUNT == 32, "CHILD_MHT_NODES_COUNT");
-
-typedef struct _mht_node {
-    gcm_crypto_data_t data_nodes_crypto[ATTACHED_DATA_NODES_COUNT];
-    gcm_crypto_data_t mht_nodes_crypto[CHILD_MHT_NODES_COUNT];
-} mht_node_t;
-
-static_assert(sizeof(mht_node_t) == PF_NODE_SIZE, "sizeof(mht_node_t)");
-
-typedef struct _data_node {
-    uint8_t data[PF_NODE_SIZE];
-} data_node_t;
-
-static_assert(sizeof(data_node_t) == PF_NODE_SIZE, "sizeof(data_node_t)");
-
-typedef struct _encrypted_node {
-    uint8_t cipher[PF_NODE_SIZE];
-} encrypted_node_t;
-
-static_assert(sizeof(encrypted_node_t) == PF_NODE_SIZE, "sizeof(encrypted_node_t)");
-
-typedef struct _recovery_node {
-    uint64_t physical_node_number;
-    uint8_t  node_data[PF_NODE_SIZE];
-} recovery_node_t;
+#include "protected_file_format.h"
 
 #define MAX_PAGES_IN_CACHE 48
 
@@ -155,10 +65,6 @@ typedef enum {
     FILE_MHT_NODE_TYPE = 1,
     FILE_DATA_NODE_TYPE = 2,
 } mht_node_type_e;
-
-// make sure these are the same size
-static_assert(sizeof(mht_node_t) == sizeof(data_node_t),
-              "sizeof(mht_node_t) == sizeof(data_node_t)");
 
 DEFINE_LIST(_file_node);
 typedef struct _file_node {
@@ -181,8 +87,6 @@ typedef struct _file_node {
     };
 } file_node_t;
 DEFINE_LISTP(_file_node);
-
-#pragma pack(pop)
 
 struct pf_context {
     union {
