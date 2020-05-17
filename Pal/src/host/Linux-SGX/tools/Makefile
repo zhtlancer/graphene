@@ -11,3 +11,4 @@ $(targets):
 	$(MAKE) -C ias-request $@
 	$(MAKE) -C verify-ias-report $@
 	$(MAKE) -C pf_crypt $@
+	$(MAKE) -C pf_tamper $@
