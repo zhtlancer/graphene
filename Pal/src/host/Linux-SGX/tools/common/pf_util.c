@@ -50,7 +50,7 @@ pf_status_t linux_read(pf_handle_t handle, void* buffer, size_t offset, size_t s
         ssize_t ret = read(fd, buffer + offs, size);
         if (ret == -EINTR)
             continue;
-        if (ret < 0) {
+        if (ret <= 0) {
             ERROR("read failed: %s\n", strerror(errno));
             return PF_STATUS_CALLBACK_FAILED;
         }
@@ -74,7 +74,7 @@ pf_status_t linux_write(pf_handle_t handle, void* buffer, size_t offset, size_t 
         ssize_t ret = write(fd, buffer + offs, size);
         if (ret == -EINTR)
             continue;
-        if (ret < 0) {
+        if (ret <= 0) {
             ERROR("write failed: %s\n", strerror(errno));
         }
         size -= ret;
@@ -209,7 +209,6 @@ pf_status_t mbedtls_aes_gcm_decrypt(const pf_key_t* key, const pf_iv_t* iv,
                                     const pf_mac_t* mac) {
     pf_status_t status = PF_STATUS_CALLBACK_FAILED;
 
-    DBG("mbedtls_aes_gcm_decrypt\n");
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
 
