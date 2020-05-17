@@ -192,14 +192,10 @@ class TC_50_ProtectedFiles(TC_00_FileSystem):
         return self.run_native_binary(cmd)
 
     # invalid/corrupted files
-    @expectedFailureIf(HAS_SGX)
-    # pylint: disable=fixme
     def test_500_invalid(self):
-        # TODO: port these to the new file format
         invalid_dir = os.path.join(self.TEST_DIR, 'pf_invalid')
         # files below should work normally (benign modifications)
-        should_pass = ['chunk_padding_1_fixed', 'chunk_padding_2_fixed', 'chunk_data_3',
-                       'chunk_data_3_fixed', 'chunk_data_4', 'chunk_data_4_fixed']
+        benign_mods = []
         if not os.path.exists(invalid_dir):
             os.mkdir(invalid_dir)
         # prepare valid encrypted file (largest one for maximum possible corruptions)
@@ -214,7 +210,7 @@ class TC_50_ProtectedFiles(TC_00_FileSystem):
             input_path = os.path.join(invalid_dir, os.path.basename(original_input))
             # copy the file so it has the original file name (for allowed path check)
             shutil.copy(invalid, input_path)
-            should_pass = any(s in name for s in should_pass)
+            should_pass = any(s in name for s in benign_mods)
 
             try:
                 args = ['d', '-V', '-w', self.WRAP_KEY, '-i', input_path, '-o', output_path]
