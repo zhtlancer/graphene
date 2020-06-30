@@ -136,6 +136,9 @@ static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc)
         INLINE_SYSCALL(exit, 1, 1);
     }
 
+    PAL_TCB_URTS* tcb = get_tcb_urts();
+    tcb->sync_cnt++;
+
     sgx_raise(event);
 }
 
@@ -158,6 +161,8 @@ static void handle_async_signal(int signum, siginfo_t* info, struct ucontext* uc
         pal_ucontext_set_function_parameters(uc, sgx_entry_return, 2, -EINTR, event);
     } else {
         /* signal arrived while in app/LibOS/trusted PAL code, handle signal inside enclave */
+        PAL_TCB_URTS* tcb = get_tcb_urts();
+        tcb->async_cnt++;
         sgx_raise(event);
     }
 }
