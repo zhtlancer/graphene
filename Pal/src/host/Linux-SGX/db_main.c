@@ -210,6 +210,8 @@ void pal_linux_main(char * uptr_args, uint64_t args_size,
     pal_sec.exec_addr = GET_ENCLAVE_TLS(exec_addr);
     pal_sec.exec_size = GET_ENCLAVE_TLS(exec_size);
 
+#if 0  /* FIXME: DO NOT ZERO THE HEAP, ONLY FOR PERF TEST */
+
     /* Zero the heap. We need to take care to not zero the exec area. */
 
     void* zero1_start = pal_sec.heap_min;
@@ -225,6 +227,7 @@ void pal_linux_main(char * uptr_args, uint64_t args_size,
 
     memset(zero1_start, 0, zero1_end - zero1_start);
     memset(zero2_start, 0, zero2_end - zero2_start);
+#endif
 
     /* relocate PAL itself */
     pal_map.l_addr = elf_machine_load_address();
