@@ -9,7 +9,7 @@
 #include "sgx_internal.h"
 
 static int g_gsgx_device = -1;
-static int g_isgx_device = -1;
+int g_isgx_device = -1;
 
 static void* g_zero_pages       = NULL;
 static size_t g_zero_pages_size = 0;
@@ -158,7 +158,8 @@ int create_enclave(sgx_arch_secs_t * secs,
      * EINIT in https://software.intel.com/sites/default/files/managed/48/88/329298-002.pdf). */
 
     uint64_t addr = INLINE_SYSCALL(mmap, 6, secs->base, secs->size,
-                                   PROT_NONE, /* newer DCAP driver requires such initial mmap */
+                                   PROT_READ | PROT_WRITE | PROT_EXEC, /* newer DCAP driver requires such initial mmap */
+                                                                        /* FIXME: switch back to PROT_READ|PROT_WRITE|PROT_EXEC for EDMM TZ */
                                    flags|MAP_FIXED, g_isgx_device, 0);
 
     if (IS_ERR_P(addr)) {
@@ -383,14 +384,14 @@ int init_enclave(sgx_arch_secs_t * secs,
         default:
             error = "Unknown reason";             break;
         }
-        SGX_DBG(DBG_I, "enclave EINIT failed - %s\n", error);
+        SGX_DBG(DBG_E, "enclave EINIT failed - %s\n", error);
         return -EPERM;
     }
 
     /* all enclave pages were EADDed, don't need zero pages anymore */
     ret = INLINE_SYSCALL(munmap, 2, g_zero_pages, g_zero_pages_size);
     if (IS_ERR(ret)) {
-        SGX_DBG(DBG_I, "Cannot unmap zero pages %d\n", ret);
+        SGX_DBG(DBG_E, "Cannot unmap zero pages %d\n", ret);
         return -ERRNO(ret);
     }
 

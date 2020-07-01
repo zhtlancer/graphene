@@ -5,6 +5,7 @@
 #define PAL_SECURITY_H
 
 #include "pal.h"
+#include "pal-arch.h"
 #include "sgx_arch.h"
 
 typedef char PAL_SEC_STR[255];
@@ -46,6 +47,16 @@ struct pal_sec {
 #if PRINT_ENCLAVE_STAT == 1
     PAL_NUM         start_time;
 #endif
+
+    /* EDMM mode
+     * 0: disabled
+     * 1: naive EDMM
+     * 2: batch EPC allocation
+     */
+    PAL_FLG         edmm_mode;
+
+    /* base address for EMBC */
+    PAL_PTR         emcb_base;
 };
 
 #ifdef IN_ENCLAVE
@@ -54,5 +65,9 @@ extern struct pal_sec pal_sec;
 
 #define GRAPHENE_TEMPDIR        "/tmp/graphene"
 #define GRAPHENE_PIPEDIR        (GRAPHENE_TEMPDIR "/pipes")
+
+/* batch size for batch EPC allocation */
+#define EAUG_CHUNK_SIZE     (1UL<<20)
+#define EAUG_CHUNK_PAGENUM  (EAUG_CHUNK_SIZE/PRESET_PAGESIZE)
 
 #endif /* PAL_SECURITY_H */

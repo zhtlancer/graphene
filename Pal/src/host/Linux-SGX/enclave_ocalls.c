@@ -1482,3 +1482,12 @@ out:
     sgx_reset_ustack(old_ustack);
     return retval;
 }
+
+int ocall_remove_epc_page(void* addr)
+{
+    int retval;
+
+    retval = sgx_ocall(OCALL_REMOVE_EPC_PAGE, addr);
+
+    return retval;
+}

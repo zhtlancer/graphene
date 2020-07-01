@@ -108,3 +108,5 @@ int ocall_eventfd (unsigned int initval, int flags);
  */
 int ocall_get_quote(const sgx_spid_t* spid, bool linkable, const sgx_report_t* report,
                     const sgx_quote_nonce_t* nonce, char** quote, size_t* quote_len);
+
+int ocall_remove_epc_page (void* addr);

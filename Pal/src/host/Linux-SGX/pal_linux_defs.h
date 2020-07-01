@@ -21,6 +21,8 @@
 
 //#define USE_AES_NI          1
 
+#define ENCLAVE_ZERO_HEAP   0
+
 #define PRINT_ENCLAVE_STAT  0
 
 #define MAX_ARGS_SIZE       10000000

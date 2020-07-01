@@ -206,11 +206,16 @@ void pal_linux_main(char * uptr_args, uint64_t args_size,
         return;
     }
 
+    pal_sec.edmm_mode = sec_info.edmm_mode;
+    pal_sec.emcb_base = sec_info.emcb_base;
+    SGX_DBG(DBG_D, "%s %d EDMM mode %d emcb_base %p\n", __func__, __LINE__, pal_sec.edmm_mode, pal_sec.emcb_base);
+
     pal_sec.heap_min = GET_ENCLAVE_TLS(heap_min);
     pal_sec.heap_max = GET_ENCLAVE_TLS(heap_max);
     pal_sec.exec_addr = GET_ENCLAVE_TLS(exec_addr);
     pal_sec.exec_size = GET_ENCLAVE_TLS(exec_size);
 
+#if ENCLAVE_ZERO_HEAP
     /* Zero the heap. We need to take care to not zero the exec area. */
 
     void* zero1_start = pal_sec.heap_min;
@@ -226,6 +231,7 @@ void pal_linux_main(char * uptr_args, uint64_t args_size,
 
     memset(zero1_start, 0, zero1_end - zero1_start);
     memset(zero2_start, 0, zero2_end - zero2_start);
+#endif
 
     /* relocate PAL itself */
     pal_map.l_addr = elf_machine_load_address();

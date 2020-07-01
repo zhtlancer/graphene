@@ -9,6 +9,7 @@
 #include "sgx_enclave.h"
 #include "sgx_internal.h"
 #include "sgx_tls.h"
+#include "gsgx.h"
 
 #include <asm/fcntl.h>
 #include <asm/socket.h>
@@ -22,6 +23,8 @@
 #include <sysdeps/generic/ldsodefs.h>
 
 size_t g_page_size = PRESET_PAGESIZE;
+
+extern int g_isgx_device;
 
 struct pal_enclave pal_enclave;
 
@@ -284,6 +287,17 @@ static int initialize_enclave(struct pal_enclave* enclave) {
         ret = -EINVAL;
         goto out;
     }
+
+    if (get_config(enclave->config, "sgx.edmm_mode", cfgbuf, sizeof(cfgbuf)) <= 0) {
+        SGX_DBG(DBG_I, "edmm_mode not specificed, diabled by default\n");
+        enclave->pal_sec.edmm_mode = 0;
+    } else {
+        enclave->pal_sec.edmm_mode = parse_int(cfgbuf);
+    }
+    SGX_DBG(DBG_I, "edmm_mode set to %x\n", enclave->pal_sec.edmm_mode);
+
+    if (enclave->pal_sec.edmm_mode)
+        enclave->size = parse_int("4G");
 
     /* Reading sgx.thread_num from manifest */
     if (get_config(enclave->config, "sgx.thread_num", cfgbuf, sizeof(cfgbuf)) > 0) {
@@ -590,10 +604,17 @@ static int initialize_enclave(struct pal_enclave* enclave) {
                 goto out;
             }
         }
+        if (enclave->pal_sec.edmm_mode) {
+            // Skip free and stack areas for EDMM
+            if (!strcmp_static(areas[i].desc, "free")) {
+                goto skip_add_pages;
+            }
+        }
 
         ret = add_pages_to_enclave(&enclave_secs, (void *) areas[i].addr, data, areas[i].size,
                 areas[i].type, areas[i].prot, areas[i].skip_eextend, areas[i].desc);
 
+skip_add_pages:
         if (data)
             INLINE_SYSCALL(munmap, 2, data, areas[i].size);
 
@@ -929,6 +950,29 @@ static int load_enclave (struct pal_enclave * enclave,
     pal_tcb_urts_init(
         tcb, /*stack=*/NULL, alt_stack); /* main thread uses the stack provided by Linux */
     pal_thread_init(tcb);
+
+    if (pal_sec->edmm_mode == SGX_EDMM_ARCH_BATCH) {
+        struct sgx_enclave_init param;
+        ssize_t shm_size = (enclave->size/EAUG_CHUNK_SIZE) * 4;
+        uintptr_t emcb_addr = INLINE_SYSCALL(mmap, 6,
+                enclave->size + 0x1000, shm_size,
+                PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
+                -1, 0);
+        pal_sec->emcb_base = (PAL_PTR)emcb_addr;
+        SGX_DBG(DBG_I, "emcb base address %p shm_size %lu KiB\n",
+                pal_sec->emcb_base, shm_size/1024);
+
+        param.sigstruct = (uint64_t)pal_sec->emcb_base;
+        param.einittoken = EAUG_CHUNK_SIZE;
+        ret = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_EMCB_BASE,
+                &param);
+
+        if (ret < 0) {
+            SGX_DBG(DBG_E, "failed to set emcb base via ioctl (%d)\n",
+                    ret);
+                    return -EINVAL;
+        }
+    }
 
     /* start running trusted PAL */
     ecall_enclave_start(args, args_size, env, env_size);
