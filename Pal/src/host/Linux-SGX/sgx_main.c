@@ -962,6 +962,7 @@ static int load_enclave (struct pal_enclave * enclave,
         SGX_DBG(DBG_I, "emcb base address %p shm_size %lu KiB\n",
                 pal_sec->emcb_base, shm_size/1024);
 
+        param.addr = enclave->baseaddr + enclave->size - PRESET_PAGESIZE;
         param.sigstruct = (uint64_t)pal_sec->emcb_base;
         param.einittoken = EAUG_CHUNK_SIZE;
         ret = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_EMCB_BASE,
