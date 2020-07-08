@@ -1,8 +1,10 @@
 #!$(PAL)
 
 loader.preload = file:$(SHIMPATH)
-loader.exec = file:/usr/lib/R/bin/exec/R
-loader.execname = /usr/lib/R/bin/exec/R
+#loader.exec = file:/usr/lib/R/bin/exec/R
+#loader.execname = /usr/lib/R/bin/exec/R
+loader.exec = file:/usr/bin/R
+loader.execname = R
 loader.env.LD_LIBRARY_PATH = /lib:/lib/x86_64-linux-gnu:/usr/lib:/usr/lib/x86_64-linux-gnu
 loader.env.PATH = /usr/lib/R/bin:/usr/bin:/bin
 loader.env.USERNAME =
@@ -13,7 +15,7 @@ loader.env.R_HOME = /usr/lib/R
 loader.env.R_SHARE_DIR = /usr/share/R/share
 loader.env.R_INCLUDE_DIR = /usr/share/R/include
 loader.env.R_DOC_DIR = /usr/share/R/doc
-loader.debug_type = none
+loader.debug_type = inline
 
 fs.mount.lib1.type = chroot
 fs.mount.lib1.path = /lib
@@ -35,11 +37,11 @@ fs.mount.tmp.type = chroot
 fs.mount.tmp.path = /tmp
 fs.mount.tmp.uri = file:/tmp
 
-sys.stack.size = 256K
-sys.brk.size = 4M
-glibc.heap_size = 16M
+#sys.stack.size = 256K
+#sys.brk.size = 4M
+#glibc.heap_size = 16M
 
-sgx.enclave_size = 1G
+sgx.enclave_size = 512M
 
 sgx.trusted_files.ld = file:$(LIBCDIR)/ld-linux-x86-64.so.2
 sgx.trusted_files.libc = file:$(LIBCDIR)/libc.so.6
@@ -65,9 +67,8 @@ sgx.trusted_files.libnssnis = file:/lib/x86_64-linux-gnu/libnss_nis.so.2
 sgx.trusted_files.libgfortran = file:/usr/lib/x86_64-linux-gnu/libgfortran.so.3
 sgx.trusted_files.libgcc = file:/lib/x86_64-linux-gnu/libgcc_s.so.1
 sgx.trusted_files.libquadmath = file:/usr/lib/x86_64-linux-gnu/libquadmath.so.0
-sgx.trusted_files.sh = file:/bin/sh
+#sgx.trusted_files.sh = file:/bin/sh
 
 sgx.allowed_files.rhome = file:/usr/lib/R
 sgx.allowed_files.scripts = file:scripts
 
-sgx.trusted_children.sh = file:sh.sig

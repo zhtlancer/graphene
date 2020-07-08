@@ -9,8 +9,11 @@
 #define MEMORY_GAP          (PRESET_PAGESIZE)
 #define ENCLAVE_STACK_SIZE  (PRESET_PAGESIZE * 16)
 #define DEAFULT_HEAP_MIN    (0x10000)
+
 #define TRACE_ECALL         (1)
 #define TRACE_OCALL         (1)
+
+#define TRACE_ECALL_TIME    (1)
 
 #define DEBUG_ECALL         (0)
 #define DEBUG_OCALL         (0)

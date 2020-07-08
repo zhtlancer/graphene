@@ -281,6 +281,44 @@ void * allocate_stack (size_t size, size_t protect_size, bool user)
     return stack;
 }
 
+void *reserve_edmm_stack(size_t size, size_t reserve_size,
+        size_t protect_size, bool user)
+{
+    size = ALIGN_UP(size);
+    protect_size = ALIGN_UP(protect_size);
+
+    /* preserve a non-readable, non-writeable page below the user
+       stack to stop user program to clobber other vmas */
+    void * stack = NULL;
+    int flags = STACK_FLAGS|(user ? 0 : VMA_INTERNAL);
+
+    if (user) {
+        void *reserve_stack = NULL;
+        reserve_stack = bkeep_unmapped_heap(reserve_size + protect_size, PROT_NONE,
+                                    flags, NULL, 0, "stack");
+
+        stack = reserve_stack + reserve_size - size;
+        debug("reserved stack at %p (stack = %p)\n", reserve_stack, stack);
+        stack = (void *)
+            DkVirtualMemoryAlloc(stack, size + protect_size,
+                                 0, PAL_PROT_NONE);
+    } else {
+        stack = system_malloc(size + protect_size);
+    }
+
+    if (!stack)
+        return NULL;
+
+    stack += protect_size;
+    DkVirtualMemoryProtect(stack, size, PAL_PROT_READ|PAL_PROT_WRITE);
+
+    if (bkeep_mprotect(stack, size, PROT_READ|PROT_WRITE, flags) < 0)
+        return NULL;
+
+    debug("allocated stack at %p (size = %d)\n", stack, size);
+    return stack;
+}
+
 int populate_user_stack (void * stack, size_t stack_size,
                          int nauxv, elf_auxv_t ** auxpp,
                          const char *** argvp, const char *** envpp)
@@ -348,13 +386,20 @@ unsigned long sys_stack_size = 0;
 int init_stack (const char ** argv, const char ** envp, const char *** argpp,
                 int nauxv, elf_auxv_t ** auxpp)
 {
+    bool edmm = false;
     if (!sys_stack_size) {
         sys_stack_size = DEFAULT_SYS_STACK_SIZE;
         if (root_config) {
             char stack_cfg[CONFIG_MAX];
             if (get_config(root_config, "sys.stack.size", stack_cfg,
-                           CONFIG_MAX) > 0)
-                sys_stack_size = ALIGN_UP(parse_int(stack_cfg));
+                           CONFIG_MAX) > 0) {
+                if (strcmp_static(stack_cfg, "edmm")) {
+                    edmm = true;
+                    sys_stack_size = DEFAULT_EDMM_SYS_STACK_SIZE;
+                } else {
+                    sys_stack_size = ALIGN_UP(parse_int(stack_cfg));
+                }
+            }
         }
     }
 
@@ -363,7 +408,16 @@ int init_stack (const char ** argv, const char ** envp, const char *** argpp,
     if (!cur_thread || cur_thread->stack)
         return 0;
 
-    void * stack = allocate_stack(sys_stack_size, allocsize, true);
+    debug("%s:%d sys_stack_size %lu, allocsize %lu\n",
+            __func__, __LINE__, sys_stack_size, allocsize);
+    void * stack;
+    if (edmm) {
+        stack = reserve_edmm_stack(sys_stack_size,
+                DEFAULT_EDMM_RESERVE_STACK_SIZE,
+                allocsize, true);
+    } else {
+        stack = allocate_stack(sys_stack_size, allocsize, true);
+    }
     if (!stack)
         return -ENOMEM;
 
@@ -648,6 +702,15 @@ DEFINE_PROFILE_INTERVAL(init_loader,                init);
 DEFINE_PROFILE_INTERVAL(init_ipc_helper,            init);
 DEFINE_PROFILE_INTERVAL(init_signal,                init);
 
+DEFINE_PROFILE_INTERVAL(shim_pre_time1, init);
+DEFINE_PROFILE_INTERVAL(shim_pre_time2, init);
+DEFINE_PROFILE_INTERVAL(shim_pre_time3, init);
+DEFINE_PROFILE_INTERVAL(shim_exec_time, init);
+DEFINE_PROFILE_INTERVAL(shim_whole_time, init);
+
+unsigned long _profile_shim_init_start;
+unsigned long _profile_shim_exec_start;
+
 #define CALL_INIT(func, args ...)   func(args)
 
 #define RUN_INIT(func, ...)                                             \
@@ -676,6 +739,9 @@ int shim_init (int argc, void * args, void ** return_stack)
 
 #ifdef PROFILE
     unsigned long begin_time = GET_PROFILE_INTERVAL();
+    _profile_shim_init_start = GET_PROFILE_INTERVAL();
+    sys_printf("%s:%d _profile_shim_init_start %lu\n",
+            __func__, __LINE__, _profile_shim_init_start);
 #endif
 
     debug("host: %s\n", PAL_CB(host_type));
@@ -717,6 +783,7 @@ int shim_init (int argc, void * args, void ** return_stack)
     RUN_INIT(init_fs);
     RUN_INIT(init_dcache);
     RUN_INIT(init_handle);
+    SAVE_PROFILE_INTERVAL_SINCE(shim_pre_time1, _profile_shim_init_start);
 
     debug("shim loaded at %p, ready to initialize\n", &__load_address);
 
@@ -765,6 +832,7 @@ restore:
     RUN_INIT(init_loader);
     RUN_INIT(init_ipc_helper);
     RUN_INIT(init_signal);
+    SAVE_PROFILE_INTERVAL_SINCE(shim_pre_time2, _profile_shim_init_start);
 
     if (PAL_CB(parent_process)) {
         /* Notify the parent process */
@@ -809,6 +877,10 @@ restore:
     if (cur_tcb->context.sp)
         restore_context(&cur_tcb->context);
 
+    SAVE_PROFILE_INTERVAL_SINCE(shim_pre_time3, _profile_shim_init_start);
+#ifdef PROFILE
+    _profile_shim_exec_start = GET_PROFILE_INTERVAL();
+#endif
     if (cur_thread->exec)
         execute_elf_object(cur_thread->exec,
                            argc, argp, nauxv, auxp);
@@ -1125,13 +1197,15 @@ int shim_clean (void)
     store_all_msg_persist();
 
 #ifdef PROFILE
+    SAVE_PROFILE_INTERVAL_SINCE(shim_exec_time, _profile_shim_exec_start);
+    SAVE_PROFILE_INTERVAL_SINCE(shim_whole_time, _profile_shim_init_start);
     if (ENTER_TIME) {
         switch (SHIM_GET_TLS()->context.syscall_nr) {
             case __NR_exit_group:
-                SAVE_PROFILE_INTERVAL_SINCE(syscall_exit_group, ENTER_TIME);
+                SAVE_PROFILE_INTERVAL_SINCE_DUMMY(syscall_exit_group, ENTER_TIME);
                 break;
             case __NR_exit:
-                SAVE_PROFILE_INTERVAL_SINCE(syscall_exit, ENTER_TIME);
+                SAVE_PROFILE_INTERVAL_SINCE_DUMMY(syscall_exit, ENTER_TIME);
                 break;
         }
     }
@@ -1157,6 +1231,7 @@ int shim_clean (void)
 
     if (shim_stdio && shim_stdio != (PAL_HANDLE) -1)
         DkObjectClose(shim_stdio);
+
 
     shim_stdio = NULL;
     debug("process %u successfully terminated\n", cur_process.vmid & 0xFFFF);

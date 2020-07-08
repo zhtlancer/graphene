@@ -17,6 +17,10 @@ void pal_start_thread (void);
 
 extern void * enclave_base, * enclave_top;
 
+extern unsigned long enclave_edmm_stack_base;
+extern unsigned long enclave_edmm_stack_limit;
+unsigned long enclave_edmm_stack_top = 0;
+
 struct thread_map {
     unsigned int         tid;
     unsigned int         thread_index;
@@ -28,6 +32,8 @@ struct thread_map {
     unsigned long 	 aux_stack_addr; /* only applicable to EDMM */
     unsigned long        enclave_entry;
 };
+
+#define ALIGN_DOWN(addr, size) ((addr) & ~(size - 1UL))
 
 /* pal_expand_stack grows the stack dynamically under EDMM mode, 
  * the growing strategy is (1) commit EPC pages to the space between
@@ -46,7 +52,17 @@ void pal_expand_stack(unsigned long fault_addr)
 
     SGX_DBG(DBG_M, "fault_addr, stack_commit_top, stack_init_addr: %p, %p, %p\n", 
 		fault_addr, stack_commit_top, stack_init_addr);
-    if (fault_addr < (stack_init_addr - ENCLAVE_STACK_SIZE * PRESET_PAGESIZE)) {
+    if (fault_addr >= enclave_edmm_stack_base && fault_addr < enclave_edmm_stack_limit) {
+        // TODO: get_reserved_pages() here?
+        if (!enclave_edmm_stack_top)
+            enclave_edmm_stack_top = ALIGN_DOWN(fault_addr, PRESET_PAGESIZE) + PRESET_PAGESIZE;
+        sgx_accept_pages(accept_flags,
+                ALIGN_DOWN(fault_addr, PRESET_PAGESIZE),
+                enclave_edmm_stack_top,
+                0);
+        enclave_edmm_stack_top = ALIGN_DOWN(fault_addr, PRESET_PAGESIZE);
+        return;
+    } else if (fault_addr < (stack_init_addr - ENCLAVE_STACK_SIZE * PRESET_PAGESIZE)) {
         SGX_DBG(DBG_E, "stack overrun, stop!\n");
         return ;
     }
@@ -60,7 +76,6 @@ void pal_expand_stack(unsigned long fault_addr)
         sgx_accept_pages(accept_flags, end_addr, fault_addr, 0);
         stack_commit_top = fault_addr;
     }
-
 }
 
 /* This function setup the pages necessary for runing a thread including: 
@@ -143,7 +158,7 @@ int handle_ecall (long ecall_index, void * ecall_args, void * exit_target,
     SET_ENCLAVE_TLS(ustack_top,  untrusted_stack);
     SET_ENCLAVE_TLS(ustack,      untrusted_stack);
     SET_ENCLAVE_TLS(ocall_pending, 0);
-    
+
     switch(ecall_index) {
         case ECALL_ENCLAVE_START: {
             ms_ecall_enclave_start_t * ms =

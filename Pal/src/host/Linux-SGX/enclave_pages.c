@@ -5,6 +5,7 @@
 #include <pal_internal.h>
 #include <pal_security.h>
 #include <api.h>
+#include <sgx_enclave.h>
 #include "enclave_pages.h"
 
 #include <list.h>
@@ -14,6 +15,9 @@
 static unsigned long pgsz = PRESET_PAGESIZE;
 void * heap_base;
 static uint64_t heap_size;
+
+unsigned long enclave_edmm_stack_base;
+unsigned long enclave_edmm_stack_limit;
 
 /* This list keeps heap_vma structures of free regions
  * organized in DESCENDING order.*/
@@ -35,7 +39,12 @@ void init_pages (void)
     heap_base = pal_sec.heap_min;
     heap_size = pal_sec.heap_max - pal_sec.heap_min;
 
+    enclave_edmm_stack_base = (unsigned long)heap_base;
+    enclave_edmm_stack_limit = (unsigned long)pal_sec.heap_max;
+
     SGX_DBG(DBG_M, "available heap size: %llu M\n",
+           (heap_size - pal_sec.exec_size) / 1024 / 1024);
+    SGX_DBG(DBG_E, "available heap size: %llu M\n",
            (heap_size - pal_sec.exec_size) / 1024 / 1024);
 
     if (pal_sec.exec_size) {
@@ -70,14 +79,40 @@ static void assert_vma_list (void)
 #endif
 }
 
-void allocate_page_range(void * addr, uint64_t size)
+extern int sgx_accept_pages_timing(uint64_t sfl, size_t lo, size_t hi, bool executable, void *emcb_base);
+
+void allocate_page_range(void * addr, uint64_t size, void *emcb_base)
 {
     uint64_t start_addr = (uint64_t)addr;
     uint64_t end_addr = (uint64_t)addr + size;
     uint64_t accept_flags = SGX_SECINFO_FLAGS_R | SGX_SECINFO_FLAGS_W |
                         SGX_SECINFO_FLAGS_REG | SGX_SECINFO_FLAGS_PENDING;
 
+//#define EAUG_CHUNK_SIZE (1UL<<20)
+//#define EAUG_CHUNK_PAGENUM  (EAUG_CHUNK_SIZE / PRESET_PAGESIZE)
+    uint64_t cb_offset = start_addr / EAUG_CHUNK_SIZE;
+    //SGX_DBG(DBG_E, "start_addr %x end_addr %x #pages %d cb_offset: %lu\n", start_addr, end_addr, size/pgsz, cb_offset);
+    uint16_t *cb_entry = emcb_base + cb_offset * 4;
+    cb_entry[0] = 1;
+    cb_entry[1] = size/pgsz;
+    if (cb_entry[1] < EAUG_CHUNK_PAGENUM)
+        cb_entry[1] = EAUG_CHUNK_PAGENUM;
+    //SGX_DBG(DBG_E, "%s:%d EAUG_CHUNK_PAGENUM %lu alloc_pages %lu\n",
+            //__func__, __LINE__, EAUG_CHUNK_PAGENUM, cb_entry[1]);
+
+    //sgx_accept_pages_timing(accept_flags, start_addr, end_addr, 1, emcb_base);
+    //SGX_DBG(DBG_E, "%s:%d %p - %p size %lu\n", __func__, __LINE__, start_addr, end_addr, size);
     sgx_accept_pages(accept_flags, start_addr, end_addr, 1);
+}
+
+// TODO:
+void remove_page_range(void *addr, uint64_t size)
+{
+    void *start = (uint64_t)addr & (~(PRESET_PAGESIZE-1));
+    void *end = start + size;
+
+    for ( ; start < end; start += PRESET_PAGESIZE)
+        ocall_remove_page(start);
 }
 
 // TODO: This function should be fixed to always either return exactly `addr` or
@@ -169,8 +204,9 @@ allocated:
     }
 
     /* Dynamically Request EPC pages in EDMM Mode */
+    //SGX_DBG(DBG_E, "%s:%d %08p - %08p size %lu\n", __func__, __LINE__, addr, addr+size, size);
     if (pal_sec.edmm_mode)
-      allocate_page_range (addr, size);
+      allocate_page_range (addr, size, (void *)pal_sec.emcb_base);
 
     if (prev && next)
         SGX_DBG(DBG_M, "insert vma between %p-%p and %p-%p\n",
@@ -271,6 +307,7 @@ void free_pages(void * addr, uint64_t size)
     void * addr_top = addr + size;
 
     SGX_DBG(DBG_M, "free_pages: trying to free %p %llu\n", addr, size);
+    //SGX_DBG(DBG_E, "%s:%d %08p - %08p size %lu\n", __func__, __LINE__, addr, addr+size, size);
     
     if (!addr || !size)
         return;
@@ -291,6 +328,10 @@ void free_pages(void * addr, uint64_t size)
         addr = heap_base;
 
     SGX_DBG(DBG_M, "free %d bytes at %p\n", size, addr);
+
+    // FIXME: figure out the best time to reclaim EPC
+    //if (pal_sec.edmm_mode)
+        //remove_page_range(addr, size);
 
     _DkInternalLock(&heap_vma_lock);
 

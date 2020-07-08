@@ -13,3 +13,7 @@ int ecall_stack_expand (void * fault_addr);
 int ecall_thread_setup (void * thread_info);
 
 int ecall_thread_create(void * thread_info);
+
+#define EAUG_CHUNK_SIZE (1UL<<20)
+#define EAUG_CHUNK_PAGENUM  (EAUG_CHUNK_SIZE / PRESET_PAGESIZE)
+

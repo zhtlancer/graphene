@@ -1,7 +1,9 @@
 R_SRC = R-3.1.2
 R_INSTALL = $(R_SRC)/build
 
-manifests = R.manifest Rscript.manifest sh.manifest $(if $(wildcard R-local),R-local.manifest,)
+#manifests = R.manifest Rscript.manifest sh.manifest $(if $(wildcard R-local),R-local.manifest,)
+
+manifests = R.manifest Rscript.manifest
 
 target =
 exec_target = $(manifests)

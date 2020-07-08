@@ -68,5 +68,4 @@ sgx.trusted_files.sh = file:/bin/sh
 sgx.allowed_files.rhome = file:/usr/lib/R
 sgx.allowed_files.scripts = file:scripts
 
-sgx.trusted_children.R = file:R.sig
-sgx.trusted_children.sh = file:sh.sig
+#sgx.trusted_children.R = file:R.sig

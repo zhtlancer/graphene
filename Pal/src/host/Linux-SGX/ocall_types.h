@@ -53,6 +53,7 @@ enum {
     OCALL_RENAME,
     OCALL_DELETE,
     OCALL_LOAD_DEBUG,
+    OCALL_REMOVE_PAGE,
     OCALL_NR,
 };
 

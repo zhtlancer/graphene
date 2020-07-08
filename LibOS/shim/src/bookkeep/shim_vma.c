@@ -88,7 +88,7 @@ static inline void * __malloc (size_t size)
                             MAP_PRIVATE|MAP_ANONYMOUS|VMA_INTERNAL,
                             NULL, 0, "vma");
 
-    debug("allocate %p-%p for vmas\n", addr, addr + size);
+    //debug("allocate %p-%p for vmas\n", addr, addr + size);
 
     return (void *) DkVirtualMemoryAlloc(addr, size, 0,
                                          PAL_PROT_WRITE|PAL_PROT_READ);
@@ -490,7 +490,7 @@ int bkeep_mmap (void * addr, uint64_t length, int prot, int flags,
     if (comment && !comment[0])
         comment = NULL;
 
-    debug("bkeep_mmap: %p-%p\n", addr, addr + length);
+    //debug("bkeep_mmap: %p-%p\n", addr, addr + length);
 
     lock(vma_list_lock);
     struct shim_vma * prev = NULL;
@@ -671,7 +671,7 @@ int bkeep_munmap (void * addr, uint64_t length, int flags)
     if (!length)
         return -EINVAL;
 
-    debug("bkeep_munmap: %p-%p\n", addr, addr + length);
+    //debug("bkeep_munmap: %p-%p\n", addr, addr + length);
 
     lock(vma_list_lock);
     struct shim_vma * prev = NULL;
@@ -782,7 +782,7 @@ int bkeep_mprotect (void * addr, uint64_t length, int prot, int flags)
     if (!addr || !length)
         return -EINVAL;
 
-    debug("bkeep_mprotect: %p-%p\n", addr, addr + length);
+    //debug("bkeep_mprotect: %p-%p\n", addr, addr + length);
 
     lock(vma_list_lock);
     struct shim_vma * prev = NULL;
@@ -813,6 +813,13 @@ static void * __bkeep_unmapped (void * top_addr, void * bottom_addr,
     struct shim_vma * prev = NULL;
     struct shim_vma * cur = __lookup_vma(top_addr, &prev);
 
+    //if (cur)
+    //    sys_printf("%s:%d cur [%08p %08p] top_addr %08p bottom_addr %08p\n",
+    //            __func__, __LINE__, cur->start, cur->end, top_addr, bottom_addr);
+    //if (prev)
+    //    sys_printf("%s:%d prev [%08p %08p]\n",
+    //            __func__, __LINE__, prev->start, prev->end);
+
     while (true) {
         /* Set the range for searching */
         void * end = cur ? cur->start : top_addr;
@@ -823,13 +830,21 @@ static void * __bkeep_unmapped (void * top_addr, void * bottom_addr,
 
         /* Check if there is enough space between prev and cur */
         if (length <= end - start) {
+            //if (cur)
+            //    sys_printf("%s:%d cur [%08p %08p]\n",
+            //            __func__, __LINE__, cur->start, cur->end);
+            //if (prev)
+            //    sys_printf("%s:%d prev [%08p %08p]\n",
+            //            __func__, __LINE__, prev->start, prev->end);
+            //if (length >= 262144)
+            //    debug_print_vma_list();
             /* create a new VMA at the top of the range */
             __bkeep_mmap(prev, end - length, end, prot, flags,
                          file, offset, comment);
             assert_vma_list();
 
-            debug("bkeep_unmapped: %p-%p%s%s\n", end - length, end,
-                  comment ? " => " : "", comment ? : "");
+            //debug("bkeep_unmapped: %p-%p%s%s\n", end - length, end,
+                  //comment ? " => " : "", comment ? : "");
 
             return end - length;
         }
@@ -889,12 +904,13 @@ void * bkeep_unmapped_heap (uint64_t length, int prot, int flags,
         goto again;
 
     /* Try first time */
-    addr = __bkeep_unmapped(top_addr, bottom_addr,
+    addr = __bkeep_unmapped(heap_max, bottom_addr,
                             length, prot, flags,
                             file, offset, comment);
     assert_vma_list();
 
     if (addr) {
+#if 0
         /*
          * we only update the current heap top when we get the
          * address from [bottom_addr, current_heap_top).
@@ -903,6 +919,7 @@ void * bkeep_unmapped_heap (uint64_t length, int prot, int flags,
             debug("heap top adjusted to %p\n", addr);
             current_heap_top = addr;
         }
+#endif
         goto out;
     }
 
@@ -1113,9 +1130,11 @@ no_mem:
 END_CP_FUNC(vma)
 
 DEFINE_PROFILE_CATAGORY(inside_rs_vma, resume_func);
+#if 0
 DEFINE_PROFILE_INTERVAL(vma_add_bookkeep,   inside_rs_vma);
 DEFINE_PROFILE_INTERVAL(vma_map_file,       inside_rs_vma);
 DEFINE_PROFILE_INTERVAL(vma_map_anonymous,  inside_rs_vma);
+#endif
 
 BEGIN_RS_FUNC(vma)
 {
@@ -1130,7 +1149,9 @@ BEGIN_RS_FUNC(vma)
     if (ret < 0)
         return ret;
 
+#if 0
     SAVE_PROFILE_INTERVAL(vma_add_bookkeep);
+#endif
 
     DEBUG_RS("vma: %p-%p flags %x prot %p\n", vma->addr, vma->addr + vma->length,
              vma->flags, vma->prot);
@@ -1162,7 +1183,9 @@ BEGIN_RS_FUNC(vma)
                     return -EACCES;
 
                 need_mapped += vma->length;
+#if 0
                 SAVE_PROFILE_INTERVAL(vma_map_file);
+#endif
             }
         }
 
@@ -1173,7 +1196,9 @@ BEGIN_RS_FUNC(vma)
                                      vma->addr + vma->length - need_mapped,
                                      pal_alloc_type, pal_prot)) {
                 need_mapped += vma->length;
+#if 0
                 SAVE_PROFILE_INTERVAL(vma_map_anonymous);
+#endif
             }
         }
 

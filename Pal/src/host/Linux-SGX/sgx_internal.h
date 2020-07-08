@@ -98,7 +98,8 @@ int read_enclave_sigstruct (int sigfile, sgx_arch_sigstruct_t * sig);
 int create_enclave(sgx_arch_secs_t * secs,
                    unsigned long base,
                    unsigned long size,
-                   sgx_arch_token_t * token);
+                   sgx_arch_token_t * token,
+                   struct pal_sec * pal_sec);
 
 enum sgx_page_type { SGX_PAGE_SECS, SGX_PAGE_TCS, SGX_PAGE_REG };
 int add_pages_to_enclave(sgx_arch_secs_t * secs,
@@ -111,7 +112,8 @@ void mktcs(unsigned long tcs_addr);
 
 int init_enclave(sgx_arch_secs_t * secs,
                  sgx_arch_sigstruct_t * sigstruct,
-                 sgx_arch_token_t * token);
+                 sgx_arch_token_t * token,
+                 struct pal_sec * pal_sec);
 
 int destroy_enclave(void * base_addr, size_t length);
 void exit_process (int status, uint64_t start_exiting);

@@ -37,6 +37,11 @@
 #include <errno.h>
 
 DEFINE_PROFILE_OCCURENCE(mmap, memory);
+DEFINE_PROFILE_INTERVAL(mmap_time1, memory);
+DEFINE_PROFILE_INTERVAL(mmap_time2, memory);
+DEFINE_PROFILE_INTERVAL(mmap_time3, memory);
+DEFINE_PROFILE_INTERVAL(mmap_time4, memory);
+DEFINE_PROFILE_INTERVAL(munmap_time1, memory);
 
 void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
                      off_t offset)
@@ -44,6 +49,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
     struct shim_handle * hdl = NULL;
     long ret = 0;
 
+    BEGIN_PROFILE_INTERVAL();
     /*
      * According to the manpage, both addr and offset have to be page-aligned,
      * but not the length. mmap() will automatically round up the length.
@@ -79,6 +85,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
                 addr = NULL;
         }
     }
+    SAVE_PROFILE_INTERVAL(mmap_time1);
 
     if ((flags & (MAP_ANONYMOUS|MAP_FILE)) == MAP_FILE) {
         if (fd < 0)
@@ -105,6 +112,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
         if (!addr)
             return (void *) -ENOMEM;
     }
+    SAVE_PROFILE_INTERVAL(mmap_time2);
 
     // Approximate check only, to help root out bugs.
     void * cur_stack = current_stack();
@@ -124,6 +132,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
         ret = hdl->fs->fs_ops->mmap(hdl, &addr, length, PAL_PROT(prot, flags),
                                     flags, offset);
     }
+    SAVE_PROFILE_INTERVAL(mmap_time3);
 
     if (hdl)
         put_handle(hdl);
@@ -133,6 +142,7 @@ void * shim_do_mmap (void * addr, size_t length, int prot, int flags, int fd,
         return (void *) ret;
     }
 
+    SAVE_PROFILE_INTERVAL(mmap_time4);
     ADD_PROFILE_OCCURENCE(mmap, length);
     return addr;
 }
@@ -160,6 +170,7 @@ int shim_do_mprotect (void * addr, size_t length, int prot)
 
 int shim_do_munmap (void * addr, size_t length)
 {
+    BEGIN_PROFILE_INTERVAL();
     /*
      * According to the manpage, addr has to be page-aligned, but not the
      * length. munmap() will automatically round up the length.
@@ -190,5 +201,6 @@ int shim_do_munmap (void * addr, size_t length)
     if (bkeep_munmap(addr, length, 0) < 0)
         bug();
 
+    SAVE_PROFILE_INTERVAL(munmap_time1);
     return 0;
 }

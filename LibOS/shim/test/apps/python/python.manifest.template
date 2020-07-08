@@ -30,10 +30,11 @@ fs.mount.etc.type = chroot
 fs.mount.etc.path = /etc
 fs.mount.etc.uri = file:
 
-sys.stack.size = 256K
-sys.brk.size = 4M
-glibc.heap_size = 16M
+#sys.stack.size = 256K
+#sys.brk.size = 176M
+#glibc.heap_size = 16M
 
+sgx.enclave_size = 256M
 sgx.trusted_files.ld = file:$(LIBCDIR)/ld-linux-x86-64.so.2
 sgx.trusted_files.libc = file:$(LIBCDIR)/libc.so.6
 sgx.trusted_files.libdl = file:$(LIBCDIR)/libdl.so.2
@@ -53,3 +54,4 @@ sgx.trusted_files.gai = file:gai.conf
 
 sgx.allowed_files.pyhome = file:/usr/lib/python2.7
 sgx.allowed_files.scripts = file:scripts
+sgx.allowed_files.benchmarks = file:benchmarks

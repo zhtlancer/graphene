@@ -7,7 +7,7 @@ loader.env.LD_LIBRARY_PATH = /lib:/lib/x86_64-linux-gnu:/usr/lib:/usr/lib/x86_64
 loader.env.PATH = /bin:/usr/bin
 loader.debug_type = $(DEBUGTYPE)
 
-fs.start_dir = $(PWD)
+#fs.start_dir = $(PWD)
 
 fs.mount.lib1.type = chroot
 fs.mount.lib1.path = /lib
@@ -32,3 +32,14 @@ fs.mount.tmp.uri = file:/tmp
 fs.mount.pwd.type = chroot
 fs.mount.pwd.path = $(PWD)
 fs.mount.pwd.uri = file:$(PWD)
+
+sys.stack.size = 1M
+sys.brk.size = 32M
+
+sgx_enclave_size = 256M
+
+sgx.trusted_files.ld = file:$(LIBCDIR)/ld-linux-x86-64.so.2
+sgx.trusted_files.libc = file:$(LIBCDIR)/libc.so.6
+sgx.trusted_files.libdl = file:$(LIBCDIR)/libdl.so.2
+
+sgx.allowed_files.helloword = file:helloworld

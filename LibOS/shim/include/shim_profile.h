@@ -103,6 +103,8 @@ extern struct shim_profile __profile_end;
         .type = OCCURENCE,                                  \
     };
 
+#define DEFINE_PROFILE_INTERVAL_DUMMY(prof, rprof)
+
 #define DEFINE_PROFILE_INTERVAL(prof, rprof)                \
     _DEFINE_PROFILE_INTERVAL(prof, rprof)
 #define _DEFINE_PROFILE_INTERVAL(prof, rprof)               \
@@ -196,6 +198,8 @@ extern struct shim_profile __profile_end;
         atomic_add(_t, &profile_##prof.val.interval.time);  \
         _t; });                                             \
      })
+
+#define SAVE_PROFILE_INTERVAL_SINCE_DUMMY(prof, since) ({ do {} while (0); 0; })
 
 #define SAVE_PROFILE_INTERVAL_SET(prof, begin, end)         \
         _SAVE_PROFILE_INTERVAL_SET(prof, begin, end)

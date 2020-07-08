@@ -42,6 +42,9 @@ struct pal_sec {
     /* edmm mode */
     uint8_t edmm_mode;
 
+    /* emcb region base address */
+    uint64_t emcb_base;
+
     /* remaining heap usable by application */
     PAL_PTR         heap_min, heap_max;
 

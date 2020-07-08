@@ -189,7 +189,7 @@ retry_dump_vmas:
 
 #ifdef PROFILE
     if (ENTER_TIME)
-        SAVE_PROFILE_INTERVAL_SINCE(syscall_execve, ENTER_TIME);
+        SAVE_PROFILE_INTERVAL_SINCE_DUMMY(syscall_execve, ENTER_TIME);
 #endif
 
     debug("execve: start execution\n");

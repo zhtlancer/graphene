@@ -61,7 +61,7 @@ extern struct pal_linux_state {
 
 #define PRESET_PAGESIZE (1 << 12)
 
-#define MAX_THREAD_NUM      16
+#define MAX_THREAD_NUM      32
 
 #define AUX_STACK_SIZE      PRESET_PAGESIZE * 2
 
@@ -213,7 +213,7 @@ extern struct pal_enclave_config {
 #define DBG_M   0x20
 
 #ifdef DEBUG
-# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S)
+# define DBG_LEVEL (DBG_E|DBG_I|DBG_D|DBG_S|DBG_P|DBG_M)
 #else
 # define DBG_LEVEL (DBG_E)
 #endif

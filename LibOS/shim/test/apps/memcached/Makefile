@@ -1,13 +1,14 @@
-manifests = memcached.manifest
+manifests = memcached.manifest memcached-edmm.manifest
 SRCDIR = memcached-master
-HOST = $(firstword $(shell ifconfig | grep 'inet addr:'| grep -v '127.0.0.1' -m 1 | cut -d: -f2))
-PORT = 8000
+#HOST = $(firstword $(shell ifconfig | grep 'inet addr:'| grep -v '127.0.0.1' -m 1 | cut -d: -f2))
+HOST = 127.0.0.1
+PORT = 11211
 CORES = 4
 MAXMEM = 256
 MAXTHREADS = 16
 
 target = memcached $(manifests)
-exec_target = memcached
+exec_target = memcached $(manifests)
 
 clean-extra = clean-build
 

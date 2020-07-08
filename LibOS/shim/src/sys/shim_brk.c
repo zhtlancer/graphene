@@ -48,6 +48,7 @@ static struct shim_brk_info region;
 
 DEFINE_PROFILE_OCCURENCE(brk, memory);
 DEFINE_PROFILE_OCCURENCE(brk_count, memory);
+DEFINE_PROFILE_INTERVAL(brk_time, memory);
 DEFINE_PROFILE_OCCURENCE(brk_migrate_count, memory);
 
 void get_brk_region (void ** start, void ** end, void ** current)
@@ -176,6 +177,7 @@ int reset_brk (void)
 
 void * shim_do_brk (void * brk)
 {
+    BEGIN_PROFILE_INTERVAL();
     master_lock();
 
     if (init_brk_region(NULL) < 0) {
@@ -217,6 +219,7 @@ unchanged:
 
 out:
     master_unlock();
+    SAVE_PROFILE_INTERVAL(brk_time);
     return brk;
 }
 

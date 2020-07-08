@@ -555,6 +555,7 @@ static int restore_gipc (PAL_HANDLE gipc, struct gipc_header * hdr, ptr_t base,
     return 0;
 }
 
+extern int cp_func_vma(CP_FUNC_ARGS);
 int restore_checkpoint (struct cp_header * cphdr, struct mem_header * memhdr,
                         ptr_t base, int type)
 {

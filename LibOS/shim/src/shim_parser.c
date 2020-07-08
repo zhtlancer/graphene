@@ -491,7 +491,7 @@ void parse_syscall_before (int sysno, const char * name, int nr, ...)
     va_list ap;
     va_start(ap, nr);
 
-    PRINTF("---- shim_%s(", name);
+    //PRINTF("---- shim_%s(", name);
 
     for (int i = 0 ; i < nr ; i++) {
         if (parser->stop && parser->stop == i)

@@ -38,6 +38,59 @@
 
 #include "sgx_enclave.h"
 
+#if TRACE_ECALL
+void trace_write_log (const char * str, int len);
+void trace_close_log (void);
+#define TRACE_LOG_BUF_LEN 128
+extern char trace_log_buf[TRACE_LOG_BUF_LEN];
+
+#ifndef _NSIG
+#define _NSIG 128
+#endif
+
+static inline void inc (unsigned int * counter)
+{
+        asm volatile("lock; incl %0"
+                : "+m" (*counter));
+}
+
+unsigned int sig_counter[_NSIG+1];
+const char *sig_name[_NSIG+1];
+
+static void log_sig(int code, const char *name, int namelen, void *ms)
+{
+    inc(&sig_counter[code]);
+    if (!sig_name[code])
+       sig_name[code] = name;
+}
+
+void print_sig_counter(void)
+{
+    int len, i;
+    unsigned int total_sig = 0;
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "signal counts:\n");
+    trace_write_log(trace_log_buf, len);
+    for (i = 0; i < _NSIG; i++) {
+        if (!sig_counter[i])
+            continue;
+
+        total_sig += sig_counter[i];
+        len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+                "\t%s: %u\n", sig_name[i], sig_counter[i]);
+        trace_write_log(trace_log_buf, len);
+    }
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "\tTotal signals: %u\n", total_sig);
+    trace_write_log(trace_log_buf, len);
+
+}
+
+#define SIGDEBUG(code, ms) do { log_sig(code, #code, sizeof(#code) - 1, ms); } while (0)
+#else
+#define SIGDEBUG(code, ms) do {} while (0)
+#endif
+
 #define IS_ERR INTERNAL_SYSCALL_ERROR
 #define IS_ERR_P INTERNAL_SYSCALL_ERROR_P
 #define ERRNO INTERNAL_SYSCALL_ERRNO
@@ -199,6 +252,8 @@ static int get_event_num (int signum)
 
 void sgx_entry_return (void);
 
+#define ALIGN_DOWN(base, size)	((base) & -((__typeof__ (base)) (size)))
+
 static void _DkTerminateSighandler (int signum, siginfo_t * info,
                                     struct ucontext * uc)
 {
@@ -221,6 +276,8 @@ static void _DkTerminateSighandler (int signum, siginfo_t * info,
 #endif
     }
 }
+
+unsigned long sgx_edmm_stack_limit;
 
 static void _DkResumeSighandler (int signum, siginfo_t * info,
                                  struct ucontext * uc)
@@ -254,6 +311,27 @@ static void _DkResumeSighandler (int signum, siginfo_t * info,
         INLINE_SYSCALL(exit, 1, 1);
     }
 
+#if TRACE_ECALL
+    switch (signum) {
+        case SIGBUS:
+            SIGDEBUG(SIGBUS, NULL);
+            break;
+        case SIGSEGV:
+            SIGDEBUG(SIGSEGV, NULL);
+            break;
+        case SIGILL:
+            SIGDEBUG(SIGILL, NULL);
+            break;
+        case SIGFPE:
+            SIGDEBUG(SIGFPE, NULL);
+            break;
+        default:
+            SIGDEBUG(_NSIG, NULL);
+            SGX_DBG(DBG_E, "unhandled fault %d\n", signum);
+            break;
+    }
+#endif
+
     int event = 0;
     switch(signum) {
         case SIGBUS:
@@ -270,12 +348,15 @@ static void _DkResumeSighandler (int signum, siginfo_t * info,
     unsigned long stack_end_addr = current_enclave->stackinfo.end_addr;
     
     /* need to grow stack if it's in stack area with SIGBUS under EDMM */
-    if (current_enclave->pal_sec.edmm_mode && (signum == SIGBUS && rax == ERESUME)
-                && (fault_addr <= stack_start_addr && fault_addr >= stack_end_addr)){
+    if (current_enclave->pal_sec.edmm_mode && ((signum == SIGBUS || signum == SIGSEGV) && rax == ERESUME)
+                && (fault_addr <= stack_start_addr && fault_addr >= stack_end_addr)) {
         ecall_stack_expand((void *)fault_addr);
-    }
-    else
+    } else if (current_enclave->pal_sec.edmm_mode && ((signum == SIGBUS || signum == SIGSEGV) && rax == ERESUME)
+                && (fault_addr < sgx_edmm_stack_limit)) {
+        ecall_stack_expand((void *)fault_addr);
+    } else {
         sgx_raise(event);
+    }
 #else
     uc->uc_mcontext.gregs[REG_R9] = event;
 #endif

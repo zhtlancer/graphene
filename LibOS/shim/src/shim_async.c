@@ -61,6 +61,7 @@ uint64_t install_async_event (PAL_HANDLE object, unsigned long time,
     struct async_event * event =
                     malloc(sizeof(struct async_event));
 
+    debug("[TZ DEBUG] %s:%d\n", __func__, __LINE__);
     unsigned long install_time = DkSystemTimeQuery();
     uint64_t rv = 0;
     
@@ -208,6 +209,7 @@ static void shim_async_helper (void * arg)
         if (polled == async_event_handle) {
             clear_event(&async_helper_event);
 update_status:
+            debug("[TZ DEBUG] %s:%d\n", __func__, __LINE__);
             latest_time = DkSystemTimeQuery();
             if (async_helper_state == HELPER_NOTALIVE) {
                 break;

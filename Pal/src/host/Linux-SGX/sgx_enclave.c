@@ -6,6 +6,7 @@
 #include "sgx_internal.h"
 #include "pal_security.h"
 #include "pal_linux_error.h"
+#include "graphene-sgx.h"
 
 #include <asm/mman.h>
 #include <asm/ioctls.h>
@@ -20,11 +21,201 @@
 # define SOL_IPV6 41
 #endif
 
+#if TRACE_OCALL || TRACE_ECALL
+unsigned int trace_write_counter = 0;
+unsigned int trace_write_ocall_counter = 0;
+unsigned int trace_write_ecall_counter = 0;
+unsigned int trace_write_signal_counter = 0;
+void trace_write_log (const char * str, int len);
+void trace_close_log (void);
+#define TRACE_LOG_BUF_LEN 128
+char trace_log_buf[TRACE_LOG_BUF_LEN];
+
+static inline void inc (unsigned int * counter)
+{
+        asm volatile("lock; incl %0"
+                : "+m" (*counter));
+}
+
+static inline unsigned int profile_atomic_add(unsigned int *var, unsigned int value)
+{
+    asm volatile("lock; xaddl %0, %1"
+            : "+r" (value), "+m" (*var)
+            :
+            : "memory"
+            );
+    return value;
+}
+
+#if TRACE_OCALL
+unsigned int ocall_counter[OCALL_NR];
+const char *ocall_name[OCALL_NR];
+
+static void log_ocall(int code, const char *name, int namelen, void *ms)
+{
+    inc(&ocall_counter[code]);
+    if (!ocall_name[code])
+        ocall_name[code] = name;
+}
+
+void print_ocall_counter(void)
+{
+    int len, i;
+    unsigned int total_ocall = 0;
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "ocall counts:\n");
+    trace_write_log(trace_log_buf, len);
+    for (i = 0; i < OCALL_NR; i++) {
+        if (!ocall_counter[i])
+            continue;
+
+        total_ocall += ocall_counter[i];
+        len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+                "\t%s: %u\n", ocall_name[i], ocall_counter[i]);
+        trace_write_log(trace_log_buf, len);
+    }
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "\tTotal ocalls: %u\n", total_ocall);
+    trace_write_log(trace_log_buf, len);
+
+}
+
+#define ODEBUG(code, ms) do { log_ocall(code, #code, sizeof(#code) - 1, ms); } while (0)
+#else
 #define ODEBUG(code, ms) do {} while (0)
+#endif /* TRACE_OCALL */
+
+#if TRACE_ECALL
+unsigned int ecall_counter[ECALL_NR];
+const char *ecall_name[ECALL_NR];
+
+#if TRACE_ECALL_TIME
+unsigned long ecall_times[ECALL_NR];
+
+static void log_ecall_time(int code, const char *name, int namelen,
+        unsigned long interval, void *ms)
+{
+    profile_atomic_add(&ecall_times[code], interval);
+    if (!ecall_name[code])
+        ecall_name[code] = name;
+}
+
+void print_ecall_times(void)
+{
+    int len, i;
+    unsigned int total_ecall = 0;
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "ecall times:\n");
+    trace_write_log(trace_log_buf, len);
+    for (i = 0; i < ECALL_NR; i++) {
+        if (!ecall_times[i])
+            continue;
+
+        total_ecall += ecall_times[i];
+        len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+                "\t%s: %lu\n", ecall_name[i], ecall_times[i]);
+        trace_write_log(trace_log_buf, len);
+    }
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "\tTotal ecall times: %u\n", total_ecall);
+    trace_write_log(trace_log_buf, len);
+
+}
+
+#define TRACE_ETIME_START(code, ms) \
+    volatile unsigned long _interval_start;  \
+    do {                            \
+        struct timeval tv;          \
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);     \
+        _interval_start = tv.tv_sec * 1000000UL + tv.tv_usec;   \
+    } while (0)
+
+#define TRACE_ETIME_END(code, ms) \
+    do {                            \
+        struct timeval tv;          \
+        unsigned long _interval;    \
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);                 \
+        _interval = tv.tv_sec * 1000000UL + tv.tv_usec - _interval_start;   \
+        log_ecall_time(code, #code, sizeof(#code) - 1, _interval, ms);      \
+    } while (0)
+
+#else //TRACE_ECALL_TIME
+#define TRACE_ETIME_START(code, ms) do {} while (0)
+#define TRACE_ETIME_END(code, ms) do {} while (0)
+#endif //TRACE_ECALL_TIME
+
+void print_sig_counter(void);
+
+static void log_ecall(int code, const char *name, int namelen, void *ms)
+{
+    inc(&ecall_counter[code]);
+    if (!ecall_name[code])
+        ecall_name[code] = name;
+}
+
+void print_ecall_counter(void)
+{
+    int len, i;
+    unsigned int total_ecall = 0;
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "ecall counts:\n");
+    trace_write_log(trace_log_buf, len);
+    for (i = 0; i < ECALL_NR; i++) {
+        if (!ecall_counter[i])
+            continue;
+
+        total_ecall += ecall_counter[i];
+        len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+                "\t%s: %u\n", ecall_name[i], ecall_counter[i]);
+        trace_write_log(trace_log_buf, len);
+    }
+    len = snprintf(trace_log_buf, TRACE_LOG_BUF_LEN,
+            "\tTotal ecalls: %u\n", total_ecall);
+    trace_write_log(trace_log_buf, len);
+#if TRACE_ECALL_TIME
+    print_ecall_times();
+#endif
+}
+
+#define EDEBUG(code, ms) do { log_ecall(code, #code, sizeof(#code) - 1, ms); } while (0)
+#else
+#define EDEBUG(code, ms) do {} while (0)
+#endif /* TRACE_ECALL */
+
+#endif /* TRACE_OCALL || TRACE_ECALL */
+
+extern unsigned long _sgx_main_whole_start;
 
 static int sgx_ocall_exit(void * pms)
 {
+    static int exit_count = 0;
     ODEBUG(OCALL_EXIT, NULL);
+
+#if TRACE_OCALL || TRACE_ECALL
+    if (trace_write_counter == 0) {
+        inc(&trace_write_counter);
+#endif
+#if TRACE_OCALL
+        print_ocall_counter();
+#endif
+#if TRACE_ECALL
+        print_ecall_counter();
+        print_sig_counter();
+#endif
+#if TRACE_OCALL || TRACE_ECALL
+        trace_close_log();
+    }
+#endif
+    {
+        struct timeval tv;
+        unsigned long exit_time = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        exit_time = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d exit_time[%d] %lu duration %lu\n",
+            __FILE__, __LINE__, exit_count++,
+            exit_time, exit_time - _sgx_main_whole_start);
+    }
+
     INLINE_SYSCALL(exit, 1, 0);
     return 0;
 }
@@ -32,6 +223,7 @@ static int sgx_ocall_exit(void * pms)
 static int sgx_ocall_print_string(void * pms)
 {
     ms_ocall_print_string_t * ms = (ms_ocall_print_string_t *) pms;
+    ODEBUG(OCALL_PRINT_STRING, ms);
     INLINE_SYSCALL(write, 3, 2, ms->ms_str, ms->ms_length);
     return 0;
 }
@@ -292,15 +484,24 @@ static int sgx_ocall_sock_listen(void * pms)
                    sizeof(int));
 
     ret = INLINE_SYSCALL(bind, 3, fd, ms->ms_addr, ms->ms_addrlen);
+    //SGX_DBG(DBG_E, "%s:%d ret %d\n", __func__, __LINE__, ret);
+    //for (int i = 0; i < ms->ms_addrlen; i++)
+    //    SGX_DBG(DBG_E, "%02x", ms->ms_addr->sa_data[i]);
     if (IS_ERR(ret)) {
         ret = unix_to_pal_error(ERRNO(ret));
         goto err_fd;
     }
 
-    if (ms->ms_addr) {
+    if (0 && ms->ms_addr) {
         socklen_t addrlen;
+        //SGX_DBG(DBG_E, "%s:%d sa_family %lx sa_data %s\n", __func__, __LINE__, ms->ms_addr->sa_family, ms->ms_addr->sa_data);
+        //for (int i = 0; i < ms->ms_addrlen; i++)
+        //    SGX_DBG(DBG_E, "%02x", ms->ms_addr->sa_data[i]);
         ret = INLINE_SYSCALL(getsockname, 3, fd, ms->ms_addr, &addrlen);
+        //for (int i = 0; i < ms->ms_addrlen; i++)
+        //    SGX_DBG(DBG_E, "%02x", ms->ms_addr->sa_data[i]);
         if (IS_ERR(ret)) {
+            SGX_DBG(DBG_E, "%s:%d ret %d\n", __func__, __LINE__, ret);
             ret = -PAL_ERROR_DENIED;
             goto err_fd;
         }
@@ -309,6 +510,7 @@ static int sgx_ocall_sock_listen(void * pms)
 
     if (ms->ms_type & SOCK_STREAM) {
         ret = INLINE_SYSCALL(listen, 2, fd, DEFAULT_BACKLOG);
+        //SGX_DBG(DBG_E, "%s:%d ret %d\n", __func__, __LINE__, ret);
         if (IS_ERR(ret)) {
             ret = -PAL_ERROR_DENIED;
             goto err_fd;
@@ -316,6 +518,7 @@ static int sgx_ocall_sock_listen(void * pms)
     }
 
     ret = sock_getopt(fd, &ms->ms_sockopt);
+    //SGX_DBG(DBG_E, "%s:%d ret %d\n", __func__, __LINE__, ret);
     if (ret < 0)
         goto err_fd;
 
@@ -662,6 +865,18 @@ static int sgx_ocall_load_debug(void * pms)
     return 0;
 }
 
+extern int isgx_device;
+static int sgx_ocall_remove_page(void *pms)
+{
+    void *addr = pms;
+    int ret = 0;
+
+    ret = INLINE_SYSCALL(ioctl, 3, isgx_device, SGX_IOC_ENCLAVE_PAGE_REMOVE,
+            &addr);
+
+    return ret;
+}
+
 void * ocall_table[OCALL_NR] = {
         [OCALL_EXIT]            = (void *) sgx_ocall_exit,
         [OCALL_PRINT_STRING]    = (void *) sgx_ocall_print_string,
@@ -700,9 +915,8 @@ void * ocall_table[OCALL_NR] = {
         [OCALL_RENAME]          = (void *) sgx_ocall_rename,
         [OCALL_DELETE]          = (void *) sgx_ocall_delete,
         [OCALL_LOAD_DEBUG]      = (void *) sgx_ocall_load_debug,
+        [OCALL_REMOVE_PAGE]      = (void *) sgx_ocall_remove_page,
     };
-
-#define EDEBUG(code, ms) do {} while (0)
 
 int ecall_enclave_start (const char ** arguments, const char ** environments)
 {
@@ -710,32 +924,57 @@ int ecall_enclave_start (const char ** arguments, const char ** environments)
     ms.ms_arguments = arguments;
     ms.ms_environments = environments;
     ms.ms_sec_info = PAL_SEC();
+    int rval;
+    TRACE_ETIME_START(ECALL_ENCLAVE_START, &ms);
     EDEBUG(ECALL_ENCLAVE_START, &ms);
-    return sgx_ecall(ECALL_ENCLAVE_START, &ms);
+    rval = sgx_ecall(ECALL_ENCLAVE_START, &ms);
+    TRACE_ETIME_END(ECALL_ENCLAVE_START, &ms);
+
+    return rval;
 }
 
 int ecall_thread_start (void)
 {
+    int rval;
+    TRACE_ETIME_START(ECALL_THREAD_START, NULL);
     EDEBUG(ECALL_THREAD_START, NULL);
-    return sgx_ecall(ECALL_THREAD_START, NULL);
+    rval = sgx_ecall(ECALL_THREAD_START, NULL);
+    TRACE_ETIME_END(ECALL_THREAD_START, NULL);
+
+    return rval;
 }
 
 int ecall_stack_expand(void * addr)
 {
+    int rval;
+    TRACE_ETIME_START(ECALL_STACK_EXPAND, NULL);
     EDEBUG(ECALL_STACK_EXPAND, addr);
-    return sgx_ecall(ECALL_STACK_EXPAND, addr);
+    rval = sgx_ecall(ECALL_STACK_EXPAND, addr);
+    TRACE_ETIME_END(ECALL_STACK_EXPAND, NULL);
+
+    return rval;
 }
 
 int ecall_thread_setup (void * thread_info)
 {
+    int rval;
+    TRACE_ETIME_START(ECALL_THREAD_SETUP, NULL);
     EDEBUG(ECALL_THREAD_SETUP, thread_info);
-    return sgx_ecall(ECALL_THREAD_SETUP, thread_info);
+    rval = sgx_ecall(ECALL_THREAD_SETUP, thread_info);
+    TRACE_ETIME_END(ECALL_THREAD_SETUP, NULL);
+
+    return rval;
 }
 
 int ecall_thread_create(void * thread_info)
 {
+    int rval;
+    TRACE_ETIME_START(ECALL_THREAD_CREATE, NULL);
     EDEBUG(ECALL_THREAD_CREATE, thread_info);
-    return sgx_ecall(ECALL_THREAD_CREATE, thread_info);
+    rval = sgx_ecall(ECALL_THREAD_CREATE, thread_info);
+    TRACE_ETIME_END(ECALL_THREAD_CREATE, NULL);
+
+    return rval;
 }
 
 

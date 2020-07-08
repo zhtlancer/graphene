@@ -191,6 +191,7 @@ typedef struct {
     PAL_NUM allocation_time;
     PAL_NUM tail_startup_time;
     PAL_NUM child_creation_time;
+    PAL_NUM pal_whole_start;
 } PAL_CONTROL;
 
 #define pal_control (*pal_control_addr())

@@ -9,6 +9,7 @@
 #include <api.h>
 #include <list.h>
 
+#include "sgx_enclave.h"
 #include "enclave_pages.h"
 
 struct pal_enclave_state pal_enclave_state;
@@ -102,6 +103,87 @@ int sgx_verify_report (sgx_arch_report_t * report)
 
 /* sgx_accept_pages do EACCEPT on the pages from address lo to address hi */
 int sgx_accept_pages(uint64_t sfl, size_t lo, size_t hi, bool executable)
+{
+    size_t addr = lo;
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_secinfo_t)) sgx_arch_secinfo_t si;
+    si.flags = sfl;
+  
+    for (uint16_t i = 0; i < (sizeof(si.reserved)/sizeof(si.reserved[0])); i++)
+        si.reserved[i] = 0;
+  
+    SGX_DBG(DBG_M, "sgx_accept_pages: %p - %p, executable: %d \n", lo, hi, executable);
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_secinfo_t)) sgx_arch_secinfo_t smi = si;
+    smi.flags |= SGX_SECINFO_FLAGS_X;
+
+    while (hi >= addr)
+    {
+        int rc = sgx_accept(&si, (const void *)addr);
+
+        /* FIXME: Need a better handle here, adding the flow for checking multiple EACCEPT on the same page */
+        if (rc != 0) {
+//         SGX_DBG(DBG_E, "eaccept fails: %d\n", rc);
+//         return rc;
+            addr += PRESET_PAGESIZE;
+           continue;
+        }
+        if (executable) 
+            rc = sgx_modpe(&smi, (const void *)addr);
+        addr += PRESET_PAGESIZE;
+    }
+    return 0;
+}
+
+int sgx_accept_pages_timing(uint64_t sfl, size_t lo, size_t hi, bool executable, void *emcb_base)
+{
+    lo = 0x50000000;
+    size_t addr = lo;
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_secinfo_t)) sgx_arch_secinfo_t si;
+    si.flags = sfl;
+  
+    for (uint16_t i = 0; i < (sizeof(si.reserved)/sizeof(si.reserved[0])); i++)
+        si.reserved[i] = 0;
+  
+    SGX_DBG(DBG_M, "sgx_accept_pages: %p - %p, executable: %d \n", lo, hi, executable);
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_secinfo_t)) sgx_arch_secinfo_t smi = si;
+    smi.flags |= SGX_SECINFO_FLAGS_X;
+
+    unsigned long start_time, end_time;
+
+    hi = lo + 1024 * PRESET_PAGESIZE;
+    SGX_DBG(DBG_E, "%s:%d\n");
+    if (1) {
+        uint16_t *cb_entry = emcb_base + lo/EAUG_CHUNK_SIZE*4;
+        cb_entry[0] = 1;
+        cb_entry[1] = (hi-lo)/PRESET_PAGESIZE;
+        //cb_entry[1] = 1;
+    }
+    SGX_DBG(DBG_E, "%s:%d lo %lx hi %lx pages %lu\n",
+            __func__, __LINE__, lo, hi, (hi-lo)/PRESET_PAGESIZE);
+    start_time = _DkSystemTimeQuery();
+    while (hi >= addr)
+    {
+        int rc = sgx_accept(&si, (const void *)addr);
+
+        /* FIXME: Need a better handle here, adding the flow for checking multiple EACCEPT on the same page */
+        if (rc != 0) {
+//         SGX_DBG(DBG_E, "eaccept fails: %d\n", rc);
+//         return rc;
+            addr += PRESET_PAGESIZE;
+           continue;
+        }
+        if (executable) 
+            rc = sgx_modpe(&smi, (const void *)addr);
+        addr += PRESET_PAGESIZE;
+    }
+    end_time = _DkSystemTimeQuery();
+    SGX_DBG(DBG_E, "%s:%d start %lu end %lu lapse %lu\n",
+            __func__, __LINE__, start_time, end_time, end_time - start_time);
+    ocall_exit();
+    return 0;
+}
+
+
+int sgx_accept_pages_reverse(uint64_t sfl, size_t lo, size_t hi, bool executable)
 {
     size_t addr = hi;
     SE_DECLSPEC_ALIGN(sizeof(sgx_arch_secinfo_t)) sgx_arch_secinfo_t si;
@@ -892,7 +974,7 @@ int init_enclave (void)
 
     ret = lib_RSAGenerateKey(rsa, RSA_KEY_SIZE, RSA_E);
     if (ret != 0) {
-        SGX_DBG(DBG_S, "lib_RSAGenerateKey failed: %d\n", ret);
+        SGX_DBG(DBG_E, "lib_RSAGenerateKey failed: %d\n", ret);
         return ret;
     }
 
@@ -901,23 +983,29 @@ int init_enclave (void)
 
     ret = lib_RSAExportPublicKey(rsa, e, &esz, n, &nsz);
     if (ret != 0) {
-        SGX_DBG(DBG_S, "lib_RSAExtractPublicKey failed: %d\n", ret);
+        SGX_DBG(DBG_E, "lib_RSAExtractPublicKey failed: %d\n", ret);
         goto out_free;
     }
 
     LIB_SHA256_CONTEXT sha256;
 
     ret = lib_SHA256Init(&sha256);
-    if (ret < 0)
+    if (ret < 0) {
+        SGX_DBG(DBG_E, "lib_SHA256Init failed: %d\n", ret);
         goto out_free;
+    }
 
     ret = lib_SHA256Update(&sha256, n, nsz);
-    if (ret < 0)
+    if (ret < 0) {
+        SGX_DBG(DBG_E, "lib_SHA256Update failed: %d\n", ret);
         goto out_free;
+    }
 
     ret = lib_SHA256Final(&sha256, (uint8_t *) pal_enclave_state.enclave_keyhash);
-    if (ret < 0)
+    if (ret < 0) {
+        SGX_DBG(DBG_E, "lib_SHA256Final failed: %d\n", ret);
         goto out_free;
+    }
 
     pal_enclave_config.enclave_key = rsa;
 

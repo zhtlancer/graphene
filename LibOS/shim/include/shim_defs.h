@@ -21,11 +21,14 @@
 #define DEFAULT_BRK_MAX_SIZE        (256 * 1024)        /* 256KB */
 #define DEFAULT_SYS_STACK_SIZE      (256 * 1024)        /* 256KB */
 
+#define DEFAULT_EDMM_RESERVE_STACK_SIZE      (1UL * 1024 * 1024 * 1024)        /* 1GB */
+#define DEFAULT_EDMM_SYS_STACK_SIZE      (8 * 1024)        /* 8KB */
+
 #define CP_INIT_VMA_SIZE            (64 * 1024 * 1024)  /* 64MB */
 
 #define EXECVE_RTLD                 1
 
-#define ENABLE_ASLR                 1
+#define ENABLE_ASLR                 0
 
 /* debug message printout */
 #define DEBUGBUF_SIZE               256

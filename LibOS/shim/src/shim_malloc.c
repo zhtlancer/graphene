@@ -134,6 +134,8 @@ DEFINE_PROFILE_OCCURENCE(malloc_6, memory);
 DEFINE_PROFILE_OCCURENCE(malloc_7, memory);
 DEFINE_PROFILE_OCCURENCE(malloc_big, memory);
 
+DEFINE_PROFILE_INTERVAL(malloc_time, memory);
+
 #if defined(SLAB_DEBUG_PRINT) || defined(SLABD_DEBUG_TRACE)
 void * __malloc_debug (size_t size, const char * file, int line)
 #else
@@ -144,6 +146,7 @@ void * malloc (size_t size)
     int i;
     int level = -1;
 
+    BEGIN_PROFILE_INTERVAL();
     for (i = 0 ; i < SLAB_LEVEL ; i++)
         if (size < slab_levels[i]) {
             level = i;
@@ -198,6 +201,9 @@ void * malloc (size_t size)
 
 #ifdef SLAB_DEBUG_PRINT
     debug("malloc(%d) = %p (%s:%d)\n", size, mem, file, line);
+#endif
+#ifdef PROFILE
+    SAVE_PROFILE_INTERVAL(malloc_time);
 #endif
     return mem;
 }
@@ -279,6 +285,8 @@ DEFINE_PROFILE_OCCURENCE(free_7, memory);
 DEFINE_PROFILE_OCCURENCE(free_big, memory);
 DEFINE_PROFILE_OCCURENCE(free_migrated, memory);
 
+DEFINE_PROFILE_INTERVAL(free_time, memory);
+
 #if defined(SLAB_DEBUG_PRINT) || defined(SLABD_DEBUG_TRACE)
 void __free_debug (void * mem, const char * file, int line)
 #else
@@ -291,7 +299,8 @@ void free (void * mem)
     }
 
 #ifdef PROFILE
-    int level = RAW_TO_LEVEL(mem);
+    BEGIN_PROFILE_INTERVAL();
+    int level = (mem == NULL) ? 256 : RAW_TO_LEVEL(mem);
     switch(level) {
     case 0:
         INC_PROFILE_OCCURENCE(free_0);
@@ -332,6 +341,9 @@ void free (void * mem)
     slab_free_debug(slab_mgr, mem, file, line);
 #else
     slab_free(slab_mgr, mem);
+#endif
+#ifdef PROFILE
+    SAVE_PROFILE_INTERVAL(free_time);
 #endif
 }
 #if !defined(SLAB_DEBUG_PRINT) && !defined(SLABD_DEBUG_TRACE)

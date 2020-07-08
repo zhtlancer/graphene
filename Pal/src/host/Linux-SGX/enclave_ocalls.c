@@ -67,6 +67,13 @@ int printf(const char * fmt, ...);
 int ocall_exit(void)
 {
     int retval = 0;
+    {
+        unsigned long _tval;
+        ocall_gettime (&_tval);
+        SGX_DBG(DBG_E, "%s:%d time %lu\n",
+                __func__, __LINE__, _tval);
+    }
+
     SGX_OCALL(OCALL_EXIT, NULL);
     /* never reach here */
     return retval;
@@ -787,6 +794,16 @@ int ocall_load_debug(const char * command)
     int len = strlen(command);
     const char * ms = COPY_TO_USER(command, len + 1);
     retval = SGX_OCALL(OCALL_LOAD_DEBUG, (void *) ms);
+    OCALL_EXIT();
+    return retval;
+}
+
+int ocall_remove_page(void *addr)
+{
+    int retval = 0;
+
+    retval = SGX_OCALL(OCALL_REMOVE_PAGE, addr);
+
     OCALL_EXIT();
     return retval;
 }

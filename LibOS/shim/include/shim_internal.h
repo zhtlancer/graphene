@@ -188,6 +188,8 @@ long convert_pal_errno (long err);
          else                                                       \
              SAVE_PROFILE_INTERVAL_SET(syscall_##name, ENTER_TIME, _interval); \
          ENTER_TIME = 0; } while (0)
+# define BEGIN_SYSCALL_PROFILE_DUMMY()        do {} while (0)
+# define END_SYSCALL_PROFILE_DUMMY(name)      do {} while (0)
 #else
 # define BEGIN_SYSCALL_PROFILE()        do {} while (0)
 # define END_SYSCALL_PROFILE(name)      do {} while (0)
@@ -200,17 +202,17 @@ void check_stack_hook (void);
         SHIM_ARG_TYPE ret = 0;                              \
         /* handle_signal(true); */                          \
         /* check_stack_hook(); */                           \
-        BEGIN_SYSCALL_PROFILE();
+        BEGIN_SYSCALL_PROFILE_DUMMY();
 
 #define END_SHIM(name)                                      \
-        END_SYSCALL_PROFILE(name);                          \
+        END_SYSCALL_PROFILE_DUMMY(name);                          \
         handle_signal(false);                               \
         return ret;                                         \
     }
 
 #define DEFINE_SHIM_SYSCALL(name, n, func, ...)             \
-    DEFINE_PROFILE_INTERVAL(syscall_##name##_slow, syscall); \
-    DEFINE_PROFILE_INTERVAL(syscall_##name, syscall);       \
+    DEFINE_PROFILE_INTERVAL_DUMMY(syscall_##name##_slow, syscall); \
+    DEFINE_PROFILE_INTERVAL_DUMMY(syscall_##name, syscall);       \
     SHIM_SYSCALL_##n (name, func, __VA_ARGS__)              \
     EXPORT_SHIM_SYSCALL (name, n, __VA_ARGS__)
 
@@ -377,8 +379,8 @@ void parse_syscall_after (int sysno, const char * name, int nr, ...);
 #define DO_SYSCALL_6(sysno, ...) DO_SYSCALL(6, sysno, SHIM_PASS_ARGS_6)
 
 #define SHIM_SYSCALL_PASSTHROUGH(name, n, ...)                      \
-    DEFINE_PROFILE_INTERVAL(syscall_##name##_slow, syscall);        \
-    DEFINE_PROFILE_INTERVAL(syscall_##name, syscall);               \
+    DEFINE_PROFILE_INTERVAL_DUMMY(syscall_##name##_slow, syscall);        \
+    DEFINE_PROFILE_INTERVAL_DUMMY(syscall_##name, syscall);               \
     BEGIN_SHIM(name, SHIM_PROTO_ARGS_##n)                           \
         debug("WARNING: shim_" #name " not implemented\n");         \
         ret = DO_SYSCALL_##n(__NR_##name);                          \

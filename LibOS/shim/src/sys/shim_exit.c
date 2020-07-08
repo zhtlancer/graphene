@@ -174,7 +174,7 @@ int shim_do_exit_group (int error_code)
 
 #ifdef PROFILE
     if (ENTER_TIME)
-        SAVE_PROFILE_INTERVAL_SINCE(syscall_exit_group, ENTER_TIME);
+        SAVE_PROFILE_INTERVAL_SINCE_DUMMY(syscall_exit_group, ENTER_TIME);
 #endif
 
     DkThreadExit();
@@ -200,7 +200,7 @@ int shim_do_exit (int error_code)
 
 #ifdef PROFILE
     if (ENTER_TIME)
-        SAVE_PROFILE_INTERVAL_SINCE(syscall_exit, ENTER_TIME);
+        SAVE_PROFILE_INTERVAL_SINCE_DUMMY(syscall_exit, ENTER_TIME);
 #endif
 
     DkThreadExit();

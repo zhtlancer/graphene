@@ -16,6 +16,8 @@ int isgx_device = -1;
 
 void * zero_page;
 
+extern unsigned long _sgx_main_whole_start;
+
 int open_gsgx(void)
 {
     gsgx_device = INLINE_SYSCALL(open, 3, GSGX_FILE, O_RDWR, 0);
@@ -116,7 +118,8 @@ int check_wrfsbase_support (void)
 int create_enclave(sgx_arch_secs_t * secs,
                    unsigned long baseaddr,
                    unsigned long size,
-                   sgx_arch_token_t * token)
+                   sgx_arch_token_t * token,
+                   struct pal_sec * pal_sec)
 {
     int flags = MAP_SHARED;
 
@@ -161,6 +164,19 @@ int create_enclave(sgx_arch_secs_t * secs,
     }
 
     secs->baseaddr = addr;
+
+//#define EAUG_CHUNK_SIZE (1<<20)
+    SGX_DBG(DBG_E, "secs->size %lu\n", secs->size);
+    if (pal_sec->edmm_mode) {
+        uint64_t shm_size = (secs->size/((uint64_t)EAUG_CHUNK_SIZE)) * 4;
+
+        uint64_t emcb_addr = INLINE_SYSCALL(mmap, 6, secs->size + 0x1000, shm_size,
+                PROT_READ|PROT_WRITE, flags|MAP_ANONYMOUS,
+                -1, 0);
+        SGX_DBG(DBG_E, "emcb base address %p shm_size %lu KiB\n",
+                emcb_addr, shm_size/1024);
+        pal_sec->emcb_base = emcb_addr;
+    }
 
 #if SDK_DRIVER_VERSION >= KERNEL_VERSION(1, 8, 0)
     struct sgx_enclave_create param = {
@@ -209,6 +225,17 @@ int add_pages_to_enclave(sgx_arch_secs_t * secs,
 {
     sgx_arch_secinfo_t secinfo;
     int ret;
+
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d time_here %lu duration %lu\n",
+            __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
+    }
+#endif
 
     memset(&secinfo, 0, sizeof(sgx_arch_secinfo_t));
 
@@ -289,8 +316,18 @@ int add_pages_to_enclave(sgx_arch_secs_t * secs,
                          GSGX_IOCTL_ENCLAVE_ADD_PAGES,
                          &param);
     if (IS_ERR(ret)) {
-        SGX_DBG(DBG_I, "Enclave add page returned %d\n", ret);
+        SGX_DBG(DBG_E, "Enclave add page returned %d\n", ret);
         return -ERRNO(ret);
+    }
+#endif
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d time_here %lu duration %lu\n",
+            __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
     }
 #endif
 
@@ -301,7 +338,7 @@ int add_pages_to_enclave(sgx_arch_secs_t * secs,
  * the type of a regular page to TCS type */
 void mktcs(unsigned long tcs_addr)
 {
-#if SDK_DRIVER_VERSION == KERNEL_VERSION(2, 0, 0)
+#if SDK_DRIVER_VERSION >= KERNEL_VERSION(2, 0, 0)
     struct sgx_range params;
     memset(&params, 0 ,sizeof(struct sgx_range));
     params.start_addr = tcs_addr;
@@ -310,8 +347,8 @@ void mktcs(unsigned long tcs_addr)
 
     ret = INLINE_SYSCALL(ioctl, 3, isgx_device, SGX_IOC_ENCLAVE_MKTCS, &params);
     if (IS_ERR(ret)) {
-	SGX_DBG(DBG_I, "Enclave MKTCS returned %d\n", ret);
-	return ;
+        SGX_DBG(DBG_E, "Enclave MKTCS returned %d\n", ret);
+        return ;
     }
 #else
     SGX_DBG(DBG_E, "EDMM is not supported by SDK before 2.0\n");
@@ -320,7 +357,8 @@ void mktcs(unsigned long tcs_addr)
 
 int init_enclave(sgx_arch_secs_t * secs,
                  sgx_arch_sigstruct_t * sigstruct,
-                 sgx_arch_token_t * token)
+                 sgx_arch_token_t * token,
+                 struct pal_sec * pal_sec)
 {
     unsigned long enclave_valid_addr =
                 secs->baseaddr + secs->size - pagesize;
@@ -331,6 +369,16 @@ int init_enclave(sgx_arch_secs_t * secs,
     for (int i = 0 ; i < sizeof(sgx_arch_hash_t) ; i++)
         SGX_DBG(DBG_I, " %02x", sigstruct->enclave_hash[i]);
     SGX_DBG(DBG_I, "\n");
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        printf("%s:%d time_here %lu duration %lu\n",
+            __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
+    }
+#endif
 
 #if SDK_DRIVER_VERSION >= KERNEL_VERSION(1, 8, 0)
     struct sgx_enclave_init param = {
@@ -348,6 +396,16 @@ int init_enclave(sgx_arch_secs_t * secs,
     };
     int ret = INLINE_SYSCALL(ioctl, 3, gsgx_device, GSGX_IOCTL_ENCLAVE_INIT,
                              &param);
+#endif
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        printf("%s:%d time_here %lu duration %lu\n",
+            __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
+    }
 #endif
 
     if (IS_ERR(ret)) {
@@ -373,8 +431,22 @@ int init_enclave(sgx_arch_secs_t * secs,
         default:
             error = "Unknown reason";             break;
         }
-        SGX_DBG(DBG_I, "enclave EINIT failed - %s\n", error);
+        SGX_DBG(DBG_E, "enclave EINIT failed - %s\n", error);
         return -EPERM;
+    }
+
+    if (pal_sec->edmm_mode) {
+        param.addr = enclave_valid_addr;
+        param.sigstruct = (uint64_t)pal_sec->emcb_base;
+        param.einittoken = EAUG_CHUNK_SIZE;
+        ret = INLINE_SYSCALL(ioctl, 3, isgx_device, SGX_IOC_ENCLAVE_EMCB_BASE,
+                &param);
+
+        if (ret < 0) {
+            SGX_DBG(DBG_E, "failed to set emcb base via ioctl (%d)\n",
+                    ret);
+            return -EINVAL;
+        }
     }
 
     return 0;

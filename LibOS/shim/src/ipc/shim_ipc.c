@@ -66,14 +66,23 @@ int init_ipc (void)
     if (!(ipc_info_mgr = create_mem_mgr(init_align_up(ipc_info_mgr_ALLOC))))
         return -ENOMEM;
 
-    if ((ret = init_ipc_ports()) < 0)
+    if ((ret = init_ipc_ports()) < 0) {
+       sys_printf("%s:%d ret = %d\n",
+              __func__, __LINE__, ret); 
         return ret;
+    }
 
-    if ((ret = init_ns_pid()) < 0)
+    if ((ret = init_ns_pid()) < 0) {
+       sys_printf("%s:%d ret = %d\n",
+              __func__, __LINE__, ret); 
         return ret;
+    }
 
-    if ((ret = init_ns_sysv()) < 0)
+    if ((ret = init_ns_sysv()) < 0) {
+       sys_printf("%s:%d ret = %d\n",
+              __func__, __LINE__, ret); 
         return ret;
+    }
 
     return 0;
 }

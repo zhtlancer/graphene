@@ -20,6 +20,21 @@
 
 #define ENCLAVE_FILENAME RUNTIME_FILE("libpal-Linux-SGX.so")
 
+#if TRACE_ECALL
+void print_ecall_counter(void);
+#endif
+#if TRACE_OCALL
+void print_ocall_counter(void);
+#endif
+
+#if TRACE_ECALL || TRACE_OCALL
+#define TRACE_LOGFILE "trace_eocall.log"
+int trace_logfile = -1;
+#endif
+
+unsigned long _sgx_main_whole_start;
+unsigned long _sgx_main_initialize_enclave_start;
+
 unsigned long pagesize  = PRESET_PAGESIZE;
 unsigned long pagemask  = ~(PRESET_PAGESIZE - 1);
 unsigned long pageshift = PRESET_PAGESIZE - 1;
@@ -229,6 +244,8 @@ int load_enclave_binary (sgx_arch_secs_t * secs, int fd,
     return 0;
 }
 
+extern unsigned long sgx_edmm_stack_limit;
+
 int initialize_enclave (struct pal_enclave * enclave)
 {
     int ret = 0;
@@ -241,6 +258,12 @@ int initialize_enclave (struct pal_enclave * enclave)
     unsigned long        enclave_entry_addr;
     void *               tcs_addrs[MAX_DBG_THREADS];
     unsigned long        heap_min = DEAFULT_HEAP_MIN;
+
+    {
+        struct timeval tv;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        _sgx_main_initialize_enclave_start = tv.tv_sec * 1000000UL + tv.tv_usec;
+    }
 
 #define TRY(func, ...)                                              \
     ({                                                              \
@@ -281,6 +304,8 @@ int initialize_enclave (struct pal_enclave * enclave)
     /* Reading sgx.thread_num from manifest */
     if (get_config(enclave->config, "sgx.thread_num", cfgbuf, CONFIG_MAX) > 0)
         enclave->thread_num = parse_int(cfgbuf);
+    SGX_DBG(DBG_I, "%s:%d thread_num %d\n",
+            __func__, __LINE__, enclave->thread_num);
 
     if (enclave_thread_num > MAX_DBG_THREADS) {
         SGX_DBG(DBG_E, "Too many threads to debug\n");
@@ -310,7 +335,8 @@ int initialize_enclave (struct pal_enclave * enclave)
     TRY(read_enclave_sigstruct, enclave->sigfile, &enclave_sigstruct);
 
     TRY(create_enclave,
-        &enclave_secs, enclave->baseaddr, enclave->size, &enclave_token);
+        &enclave_secs, enclave->baseaddr, enclave->size, &enclave_token,
+        &enclave->pal_sec);
 
     enclave->baseaddr = enclave_secs.baseaddr;
     enclave->size = enclave_secs.size;
@@ -405,6 +431,9 @@ int initialize_enclave (struct pal_enclave * enclave)
 
     enclave_entry_addr += pal_area->addr;
 
+    // XXX: use populating before heap reserve
+    sgx_edmm_stack_limit = populating;
+
     if (exec_area) {
         if (exec_area->addr + exec_area->size > pal_area->addr)
             return -EINVAL;
@@ -428,8 +457,19 @@ int initialize_enclave (struct pal_enclave * enclave)
     }
 
     /* store stack range info for dynamic stack grow */
-    enclave->stackinfo.start_addr = stack_areas[0].addr + ENCLAVE_STACK_SIZE * PRESET_PAGESIZE;
+    //enclave->stackinfo.start_addr = stack_areas[0].addr + ENCLAVE_STACK_SIZE * PRESET_PAGESIZE;
+    enclave->stackinfo.start_addr = stack_areas[0].addr + stack_areas[0].size;
     enclave->stackinfo.end_addr = stack_areas[enclave->thread_num - 1].addr;
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d time_here %lu duration %lu\n",
+                __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
+    }
+#endif
 
     for (int i = 0 ; i < area_num ; i++) {
         if (areas[i].fd != -1 && areas[i].is_binary) {
@@ -494,13 +534,11 @@ int initialize_enclave (struct pal_enclave * enclave)
 
             goto add_pages;
         }
-
         if (areas[i].fd != -1)
             data = (void *) INLINE_SYSCALL(mmap, 6, NULL, areas[i].size,
                                            PROT_READ,
                                            MAP_FILE|MAP_PRIVATE,
                                            areas[i].fd, 0);
-
 add_pages:
  	if (enclave->pal_sec.edmm_mode) {
 	
@@ -531,8 +569,18 @@ add_pages:
         if (data)
             INLINE_SYSCALL(munmap, 2, data, areas[i].size);
     }
+#if 0
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d time_here %lu duration %lu\n",
+                __func__, __LINE__,time_here, time_here - _sgx_main_whole_start);
+    }
+#endif
 
-    TRY(init_enclave, &enclave_secs, &enclave_sigstruct, &enclave_token);
+    TRY(init_enclave, &enclave_secs, &enclave_sigstruct, &enclave_token, &enclave->pal_sec);
     
     create_tcs_mapper(ssa_area->addr, enclave_secs.baseaddr + tcs_area->addr,
                          enclave_secs.baseaddr + tls_area->addr, 
@@ -582,6 +630,16 @@ add_pages:
     dbg->thread_tids[0] = dbg->pid;
     for (int i = 0 ; i < MAX_DBG_THREADS ; i++)
         dbg->tcs_addrs[i] = tcs_addrs[i];
+
+    {
+        struct timeval tv;
+        unsigned long time_here = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        time_here = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d initialize_enclave_time %lu duration %lu\n",
+                __func__, __LINE__,time_here,
+                time_here - _sgx_main_initialize_enclave_start);
+    }
 
     return 0;
 err:
@@ -876,13 +934,25 @@ static int load_enclave (struct pal_enclave * enclave,
     current_enclave = enclave;
     map_tcs(INLINE_SYSCALL(gettid, 0));
 
+    {
+        struct timeval tv;
+        unsigned long before_enclave = 0;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        before_enclave = tv.tv_sec * 1000000UL + tv.tv_usec;
+        SGX_DBG(DBG_E, "%s:%d before_enclave %lu duration %lu\n",
+            __FILE__, __LINE__,before_enclave, before_enclave - _sgx_main_whole_start);
+    }
     /* start running trusted PAL */
     ecall_enclave_start(arguments, environments);
 
 #if PRINT_ENCLAVE_STAT == 1
     PAL_NUM exit_time = 0;
+    static int exit_count = 0;
     INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
     exit_time = tv.tv_sec * 1000000UL + tv.tv_usec;
+    SGX_DBG(DBG_E, "%s:%d exit_time[%d] %lu duration %lu\n",
+            __FILE__, __LINE__, exit_count++,
+            exit_time, exit_time - _sgx_main_whole_start);
 #endif
 
     unmap_tcs();
@@ -900,6 +970,18 @@ int main (int argc, const char ** argv, const char ** envp)
     struct pal_enclave * enclave = malloc(sizeof(struct pal_enclave));
     if (!enclave)
         return -ENOMEM;
+
+    {
+        struct timeval tv;
+        INLINE_SYSCALL(gettimeofday, 2, &tv, NULL);
+        _sgx_main_whole_start = tv.tv_sec * 1000000UL + tv.tv_usec;
+    }
+#if TRACE_OCALL || TRACE_ECALL
+    trace_logfile = INLINE_SYSCALL(open, 3, TRACE_LOGFILE,
+            O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    if (IS_ERR(trace_logfile))
+        return -ERRNO(trace_logfile);
+#endif
 
     memset(enclave, 0, sizeof(struct pal_enclave));
 
@@ -986,3 +1068,17 @@ int pal_init_enclave (const char * manifest_uri,
     return load_enclave(enclave, manifest_uri, exec_uri,
                         arguments, environments);
 }
+
+#if TRACE_OCALL == 1 || TRACE_ECALL == 1
+void trace_write_log(const char *str, int len)
+{
+    if (trace_logfile >= 0)
+        INLINE_SYSCALL(write, 3, trace_logfile, str, len);
+}
+void trace_close_log(void)
+{
+    if (trace_logfile >= 0)
+        INLINE_SYSCALL(close, 1, trace_logfile);
+}
+
+#endif
