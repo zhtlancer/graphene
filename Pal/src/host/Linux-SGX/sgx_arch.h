@@ -62,6 +62,9 @@ typedef uint8_t sgx_isvfamily_id_t[SGX_ISV_FAMILY_ID_SIZE];
 #define SGX_FLAGS_PROVISION_KEY 0x10ULL
 #define SGX_FLAGS_LICENSE_KEY   0x20ULL
 
+#define SGX_EDMM_MODE_NOEDMM    0x0U
+#define SGX_EDMM_MODE_NAIVE     0x1U
+
 #define SGX_XFRM_LEGACY 0x03ULL
 #define SGX_XFRM_AVX    0x06ULL
 #define SGX_XFRM_MPX    0x18ULL
@@ -200,6 +203,12 @@ typedef struct {
 #define SGX_SECINFO_FLAGS_SECS 0x000
 #define SGX_SECINFO_FLAGS_TCS  0x100
 #define SGX_SECINFO_FLAGS_REG  0x200
+#define SGX_SECINFO_FLAGS_TRIM 0x400
+
+/* EDMM Page status */
+#define SGX_SECINFO_FLAGS_PENDING   0x008
+#define SGX_SECINFO_FLAGS_MODIFIED  0x010
+#define SGX_SECINFO_FLAGS_PR        0x020
 
 typedef struct _css_header_t {
     uint8_t  header[12];
@@ -359,6 +368,8 @@ typedef uint8_t sgx_key_128bit_t[16];
 #define EREPORT 0
 #define EGETKEY 1
 #define EEXIT   4
+#define EACCEPT 5
+#define EMODPE  6
 
 #define LAUNCH_KEY         0
 #define PROVISION_KEY      1

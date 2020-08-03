@@ -9,7 +9,7 @@
 #include "sgx_internal.h"
 
 static int g_gsgx_device = -1;
-static int g_isgx_device = -1;
+int g_isgx_device = -1;
 
 static void* g_zero_pages       = NULL;
 static size_t g_zero_pages_size = 0;
@@ -157,8 +157,11 @@ int create_enclave(sgx_arch_secs_t * secs,
      * SIGSTRUCT during EINIT (see pp21 for ECREATE and pp34 for
      * EINIT in https://software.intel.com/sites/default/files/managed/48/88/329298-002.pdf). */
 
+    /* FIXME: switch back to PROT_READ|PROT_WRITE|PROT_EXEC for EDMM so that SGX
+     * driver can receive #PF for dynamic heap allocation. A better option might
+     * be remap only heap region later. */
     uint64_t addr = INLINE_SYSCALL(mmap, 6, secs->base, secs->size,
-                                   PROT_NONE, /* newer DCAP driver requires such initial mmap */
+                                   PROT_READ | PROT_WRITE | PROT_EXEC, /* newer DCAP driver requires such initial mmap */
                                    flags|MAP_FIXED, g_isgx_device, 0);
 
     if (IS_ERR_P(addr)) {

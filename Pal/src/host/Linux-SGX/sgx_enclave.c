@@ -7,6 +7,7 @@
 #include "sgx_enclave.h"
 #include "sgx_internal.h"
 #include "sgx_tls.h"
+#include "gsgx.h"
 
 #include <asm/errno.h>
 #include <asm/ioctls.h>
@@ -664,6 +665,38 @@ static long sgx_ocall_get_quote(void* pms) {
                           &ms->ms_quote, &ms->ms_quote_len);
 }
 
+extern int g_isgx_device;
+static long sgx_ocall_trim_epc_pages(void *pms) {
+    int retval = 0;
+    struct sgx_range *rg = (struct sgx_range *)pms;
+
+    retval = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_TRIM,
+            rg);
+
+    return retval;
+}
+
+static long sgx_ocall_notify_accept(void *pms) {
+    int retval = 0;
+    struct sgx_range *rg = (struct sgx_range *)pms;
+
+    retval = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_NOTIFY_ACCEPT,
+            rg);
+
+    return retval;
+}
+
+static long sgx_ocall_remove_epc_page(void *pms)
+{
+    void *addr = pms;
+    int retval = 0;
+
+    retval = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_PAGE_REMOVE,
+            &addr);
+
+    return retval;
+}
+
 sgx_ocall_fn_t ocall_table[OCALL_NR] = {
         [OCALL_EXIT]             = sgx_ocall_exit,
         [OCALL_MMAP_UNTRUSTED]   = sgx_ocall_mmap_untrusted,
@@ -703,6 +736,9 @@ sgx_ocall_fn_t ocall_table[OCALL_NR] = {
         [OCALL_LOAD_DEBUG]       = sgx_ocall_load_debug,
         [OCALL_EVENTFD]          = sgx_ocall_eventfd,
         [OCALL_GET_QUOTE]        = sgx_ocall_get_quote,
+        [OCALL_TRIM_EPC_PAGES]   = sgx_ocall_trim_epc_pages,
+        [OCALL_NOTIFY_ACCEPT]    = sgx_ocall_notify_accept,
+        [OCALL_REMOVE_EPC_PAGE]  = sgx_ocall_remove_epc_page,
     };
 
 #define EDEBUG(code, ms) do {} while (0)

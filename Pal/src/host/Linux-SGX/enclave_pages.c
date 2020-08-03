@@ -5,6 +5,7 @@
 #include "pal_internal.h"
 #include "pal_linux.h"
 #include "pal_security.h"
+#include "gsgx.h"
 
 struct atomic_int g_allocated_pages;
 
@@ -217,6 +218,79 @@ static void* __create_vma_and_merge(void* addr, size_t size, bool is_pal_interna
     return addr;
 }
 
+#define SE_DECLSPEC_ALIGN(x) __attribute__((aligned(x)))
+
+void get_edmm_page_range(void *addr, size_t size, bool executable);
+void free_edmm_page_range(void *start, size_t size);
+
+void free_edmm_page_range(void *start, size_t size)
+{
+    void *addr = (void *)((uintptr_t)start & (~(PRESET_PAGESIZE-1)));
+    void *end = addr + size;
+    int rval = 0;
+    struct sgx_range rg;
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_sec_info_t)) sgx_arch_sec_info_t si;
+
+    si.flags = SGX_SECINFO_FLAGS_TRIM | SGX_SECINFO_FLAGS_MODIFIED;
+    memset(&si.reserved, 0, sizeof(si.reserved));
+
+    rg.start_addr = (unsigned long) addr;
+    rg.nr_pages = size / PRESET_PAGESIZE;
+    rval = ocall_trim_epc_pages(&rg);
+    if (rval) {
+        SGX_DBG(DBG_E, "EPC trim page on [%p, %p) failed (%d)\n",
+                addr, end, rval);
+        /* TODO: error handling */
+    }
+
+    for ( ; addr < end; addr += PRESET_PAGESIZE)
+        sgx_accept(&si, addr);
+
+    rval = ocall_notify_accept(&rg);
+    if (rval) {
+        SGX_DBG(DBG_E, "EPC notify_accept on [%p, %p) failed (%d)\n",
+                addr, end, rval);
+        /* TODO: error handling */
+    }
+}
+
+void get_edmm_page_range(void *start, size_t size, bool executable)
+{
+    uintptr_t lo = (uintptr_t)start;
+    uintptr_t addr = lo + size;
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_sec_info_t)) sgx_arch_sec_info_t si;
+
+    si.flags = SGX_SECINFO_FLAGS_R | SGX_SECINFO_FLAGS_W
+        | SGX_SECINFO_FLAGS_REG | SGX_SECINFO_FLAGS_PENDING;
+    memset(&si.reserved, 0, sizeof(si.reserved));
+
+    SE_DECLSPEC_ALIGN(sizeof(sgx_arch_sec_info_t)) sgx_arch_sec_info_t smi = si;
+    smi.flags |= SGX_SECINFO_FLAGS_X;
+
+    while (lo < addr) {
+        int rval;
+        addr -= PRESET_PAGESIZE;
+
+        rval = sgx_accept(&si, (const void *)addr);
+
+        if (rval) {
+            //SGX_DBG(DBG_E, "EDMM accept page failed: %p %d\n", (void *)addr, rval);
+            /* TODO: Need error handling here */
+        }
+
+        if (executable) {
+
+            rval = sgx_modpe(&smi, (const void *)addr);
+
+            if (rval) {
+                //SGX_DBG(DBG_E, "EDMM modpe page failed: %p %d\n", (void *)addr, rval);
+                /* TODO: Need error handling here */
+            }
+        }
+    }
+
+}
+
 void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
     void* ret = NULL;
 
@@ -269,6 +343,11 @@ void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
 
 out:
     _DkInternalUnlock(&g_heap_vma_lock);
+
+    /* Allocate dynamic enclave pages for EDMM */
+    if (pal_sec.edmm_mode && ret) {
+        get_edmm_page_range(ret, size, 1);
+    }
     return ret;
 }
 
@@ -286,6 +365,10 @@ int free_enclave_pages(void* addr, size_t size) {
     }
 
     SGX_DBG(DBG_M, "Freeing %lu bytes in enclave memory at %p\n", size, addr);
+
+    if (pal_sec.edmm_mode == SGX_EDMM_MODE_NAIVE) {
+        free_edmm_page_range(addr, size);
+    }
 
     _DkInternalLock(&g_heap_vma_lock);
 

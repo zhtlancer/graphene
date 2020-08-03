@@ -9,6 +9,7 @@
 #include "sgx_enclave.h"
 #include "sgx_internal.h"
 #include "sgx_tls.h"
+#include "gsgx.h"
 
 #include <asm/fcntl.h>
 #include <asm/socket.h>
@@ -22,6 +23,8 @@
 #include <sysdeps/generic/ldsodefs.h>
 
 size_t g_page_size = PRESET_PAGESIZE;
+
+extern int g_isgx_device;
 
 struct pal_enclave pal_enclave;
 
@@ -284,6 +287,17 @@ static int initialize_enclave(struct pal_enclave* enclave) {
         ret = -EINVAL;
         goto out;
     }
+
+    if (get_config(enclave->config, "sgx.edmm_mode", cfgbuf, sizeof(cfgbuf)) <= 0) {
+        SGX_DBG(DBG_D, "edmm_mode not specificed, diabled by default\n");
+        enclave->pal_sec.edmm_mode = 0;
+    } else {
+        enclave->pal_sec.edmm_mode = parse_int(cfgbuf);
+    }
+    SGX_DBG(DBG_D, "edmm_mode set to %d\n", enclave->pal_sec.edmm_mode);
+
+    if (enclave->pal_sec.edmm_mode)
+        enclave->size = parse_int("4G");
 
     /* Reading sgx.thread_num from manifest */
     if (get_config(enclave->config, "sgx.thread_num", cfgbuf, sizeof(cfgbuf)) > 0) {
@@ -590,10 +604,17 @@ static int initialize_enclave(struct pal_enclave* enclave) {
                 goto out;
             }
         }
+        if (enclave->pal_sec.edmm_mode) {
+            // Skip free and stack areas for EDMM
+            if (!strcmp_static(areas[i].desc, "free")) {
+                goto skip_add_pages;
+            }
+        }
 
         ret = add_pages_to_enclave(&enclave_secs, (void *) areas[i].addr, data, areas[i].size,
                 areas[i].type, areas[i].prot, areas[i].skip_eextend, areas[i].desc);
 
+skip_add_pages:
         if (data)
             INLINE_SYSCALL(munmap, 2, data, areas[i].size);
 

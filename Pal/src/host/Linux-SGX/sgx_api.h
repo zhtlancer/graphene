@@ -52,6 +52,38 @@ static inline int64_t sgx_getkey(sgx_key_request_t* keyrequest, sgx_key_128bit_t
 }
 
 /*!
+ * \brief Low-level wrapper around EACCEPT instruction leaf.
+ *
+ * Caller is responsible for parameter alignment: 64B for si
+ * and page size (4KiB) for addr.
+ */
+static inline int64_t sgx_accept(sgx_arch_sec_info_t* si, const void* addr) {
+    int64_t rax = EACCEPT;
+    __asm__ volatile(
+        ENCLU "\n"
+        : "+a"(rax)
+        : "b"(si), "c"(addr)
+        : "memory");
+    return rax;
+}
+
+/*!
+ * \brief Low-level wrapper around EMODPE instruction leaf.
+ *
+ * Caller is responsible for parameter alignment: 64B for si
+ * and page size (4KiB) for addr.
+ */
+static inline int64_t sgx_modpe(sgx_arch_sec_info_t* si, const void* addr) {
+    int64_t rax = EMODPE;
+    __asm__ volatile(
+        ENCLU "\n"
+        : "+a"(rax)
+        : "b"(si), "c"(addr)
+        : "memory");
+    return rax;
+}
+
+/*!
  * \brief Low-level wrapper around RDRAND instruction (get hardware-generated random value).
  */
 static inline uint32_t rdrand(void) {

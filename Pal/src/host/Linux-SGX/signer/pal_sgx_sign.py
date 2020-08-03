@@ -624,6 +624,8 @@ def generate_measurement(attr, areas):
 
             include_page(digest, page, flags, start_zero + data + end_zero, True)
 
+    edmm_mode = attr['edmm_mode']
+
     for area in areas:
         if area.file:
             with open(area.file, 'rb') as file:
@@ -656,6 +658,8 @@ def generate_measurement(attr, areas):
                               os.stat(area.file).st_size, area.size,
                               area.desc, area.flags)
         else:
+            if edmm_mode != 0 and (area.desc == "free"):
+                continue
             for addr in range(area.addr, area.addr + area.size, offs.PAGESIZE):
                 data = ZERO_PAGE
                 if area.content is not None:
@@ -814,6 +818,7 @@ def main_sign(args):
             ('thread_num', str(DEFAULT_THREAD_NUM), parse_int, 'thread_num'),
             ('isvprodid', '0', parse_int, 'isv_prod_id'),
             ('isvsvn', '0', parse_int, 'isv_svn'),
+            ('edmm_mode', '0', parse_int, 'edmm_mode'),
     ]:
         attr[attr_key] = parse(manifest.setdefault('sgx.' + key, default))
 
@@ -824,6 +829,10 @@ def main_sign(args):
     attr['month'] = today.month
     attr['day'] = today.day
 
+    # Set Enclave size to 4GiB when EDMM mode enabled
+    if (attr['edmm_mode'] != 0):
+        attr['enclave_size'] = parse_size('4G')
+
     print("Attributes:")
     print("    size:        %d" % attr['enclave_size'])
     print("    thread_num:  %d" % attr['thread_num'])
@@ -833,6 +842,7 @@ def main_sign(args):
     print("    attr.xfrm:   %016x" % int.from_bytes(attr['xfrms'], byteorder='big'))
     print("    misc_select: %08x" % int.from_bytes(attr['misc_select'], byteorder='big'))
     print("    date:        %d-%02d-%02d" % (attr['year'], attr['month'], attr['day']))
+    print("    edmm_mode:   %d" % (attr['edmm_mode']))
 
     # Get trusted checksums and measurements
     print("Trusted files:")

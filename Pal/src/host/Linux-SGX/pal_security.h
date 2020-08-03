@@ -5,6 +5,7 @@
 #define PAL_SECURITY_H
 
 #include "pal.h"
+#include "pal-arch.h"
 #include "sgx_arch.h"
 
 typedef char PAL_SEC_STR[255];
@@ -46,6 +47,13 @@ struct pal_sec {
 #if PRINT_ENCLAVE_STAT == 1
     PAL_NUM         start_time;
 #endif
+
+    /* EDMM mode
+     * 0: disabled
+     * 1: naive EDMM
+     * other values reserved for future use
+     */
+    PAL_FLG         edmm_mode;
 };
 
 #ifdef IN_ENCLAVE

@@ -19,6 +19,7 @@
 #include "rpc_queue.h"
 #include "sgx_attest.h"
 #include "spinlock.h"
+#include "enclave_pages.h"
 
 /* Check against this limit if the buffer to be allocated fits on the untrusted stack; if not,
  * buffer will be allocated on untrusted heap. Conservatively set this limit to 1/4 of the
@@ -1480,5 +1481,56 @@ out:
     if (IS_ERR(retval))
         free(buf);
     sgx_reset_ustack(old_ustack);
+    return retval;
+}
+
+int ocall_trim_epc_pages(struct sgx_range* rg)
+{
+    void *old_ustack = sgx_prepare_ustack();
+    struct sgx_range* ms;
+    int rval = 0;
+
+    ms = sgx_alloc_on_ustack_aligned(sizeof(*ms), alignof(*ms));
+    if (!ms) {
+        rval = -ENOMEM;
+        goto out;
+    }
+    ms->start_addr = rg->start_addr;
+    ms->nr_pages = rg->nr_pages;
+
+    rval = sgx_ocall(OCALL_TRIM_EPC_PAGES, ms);
+
+out:
+    sgx_reset_ustack(old_ustack);
+    return rval;
+}
+
+int ocall_notify_accept(struct sgx_range* rg)
+{
+    void *old_ustack = sgx_prepare_ustack();
+    struct sgx_range* ms;
+    int rval = 0;
+
+    ms = sgx_alloc_on_ustack_aligned(sizeof(*ms), alignof(*ms));
+    if (!ms) {
+        rval = -ENOMEM;
+        goto out;
+    }
+    ms->start_addr = rg->start_addr;
+    ms->nr_pages = rg->nr_pages;
+
+    rval = sgx_ocall(OCALL_NOTIFY_ACCEPT, ms);
+
+out:
+    sgx_reset_ustack(old_ustack);
+    return rval;
+}
+
+int ocall_remove_epc_page(void* addr)
+{
+    int retval;
+
+    retval = sgx_ocall(OCALL_REMOVE_EPC_PAGE, addr);
+
     return retval;
 }
