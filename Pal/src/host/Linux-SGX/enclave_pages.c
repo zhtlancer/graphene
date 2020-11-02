@@ -288,7 +288,6 @@ void get_edmm_page_range(void *start, size_t size, bool executable)
             }
         }
     }
-
 }
 
 void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
@@ -344,10 +343,12 @@ void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
 out:
     _DkInternalUnlock(&g_heap_vma_lock);
 
+#if 0
     /* Allocate dynamic enclave pages for EDMM */
     if (pal_sec.edmm_mode && ret) {
         get_edmm_page_range(ret, size, 1);
     }
+#endif
     return ret;
 }
 
@@ -366,9 +367,11 @@ int free_enclave_pages(void* addr, size_t size) {
 
     SGX_DBG(DBG_M, "Freeing %lu bytes in enclave memory at %p\n", size, addr);
 
+#if 0
     if (pal_sec.edmm_mode == SGX_EDMM_MODE_NAIVE) {
         free_edmm_page_range(addr, size);
     }
+#endif
 
     _DkInternalLock(&g_heap_vma_lock);
 

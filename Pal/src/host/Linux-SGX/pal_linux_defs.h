@@ -14,6 +14,11 @@
 #define TRACE_ECALL         1
 #define TRACE_OCALL         1
 
+/* Auxiliary stack for returnable ecalls */
+#define AUX_STACK_SIZE  (PRESET_PAGESIZE * 2)
+#define AUX_MAX_THREAD_NUM  32
+#define AUX_STACK_SIZE_PER_THREAD   (AUX_STACK_SIZE/AUX_MAX_THREAD_NUM)
+
 #define DEBUG_ECALL         0
 #define DEBUG_OCALL         0
 

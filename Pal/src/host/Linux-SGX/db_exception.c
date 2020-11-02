@@ -184,7 +184,8 @@ void _DkExceptionHandler(unsigned int exit_info, sgx_cpu_context_t* uc,
         /* event isn't asynchronous (i.e., synchronous exception) */
         event_num != PAL_EVENT_QUIT &&
         event_num != PAL_EVENT_SUSPEND &&
-        event_num != PAL_EVENT_RESUME) {
+        event_num != PAL_EVENT_RESUME &&
+        event_num != PAL_EVENT_MEMFAULT) {
         printf("*** Unexpected AEX vector occurred inside PAL! ***\n"
                "(vector = 0x%x, type = 0x%x valid = %d, RIP = +0x%08lx)\n"
                "rax: 0x%08lx rcx: 0x%08lx rdx: 0x%08lx rbx: 0x%08lx\n"

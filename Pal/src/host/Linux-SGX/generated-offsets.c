@@ -108,6 +108,9 @@ void dummy(void)
     OFFSET(SGX_EXEC_ADDR, enclave_tls, exec_addr);
     OFFSET(SGX_EXEC_SIZE, enclave_tls, exec_size);
     OFFSET(SGX_CLEAR_CHILD_TID, enclave_tls, clear_child_tid);
+    OFFSET(SGX_ECALL_USTACK, enclave_tls, ecall_ustack);
+    OFFSET(SGX_AUX_STACK_OFFSET, enclave_tls, aux_stack_offset);
+    OFFSET(SGX_GPR1, enclave_tls, gpr1);
 
     /* struct pal_tcb_urts aka PAL_TCB_URTS */
     OFFSET(PAL_TCB_URTS_TCS, pal_tcb_urts, tcs);
@@ -174,6 +177,8 @@ void dummy(void)
     DEFINE(ECALL_ENCLAVE_START, ECALL_ENCLAVE_START);
     DEFINE(ECALL_THREAD_START, ECALL_THREAD_START);
     DEFINE(ECALL_THREAD_RESET, ECALL_THREAD_RESET);
+    DEFINE(ECALL_PLACEHOLDER, ECALL_PLACEHOLDER);
+    DEFINE(ECALL_ALLOCATE_PAGE, ECALL_ALLOCATE_PAGE);
 
     /* Ocall Index */
     DEFINE(OCALL_EXIT, OCALL_EXIT);

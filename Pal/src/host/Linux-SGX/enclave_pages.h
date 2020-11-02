@@ -5,3 +5,5 @@ int init_enclave_pages(void);
 void* get_enclave_heap_top(void);
 void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal);
 int free_enclave_pages(void* addr, size_t size);
+void get_edmm_page_range(void *addr, size_t size, bool executable);
+void free_edmm_page_range(void *start, size_t size);

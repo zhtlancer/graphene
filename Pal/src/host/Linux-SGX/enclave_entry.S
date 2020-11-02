@@ -28,9 +28,16 @@ enclave_entry:
 	# x86-64 sysv abi requires %rFLAGS.DF = 0 on entry to function call.
 	cld
 
+	# Check if it's EPC allocation request
+	# FIXME: %rdi can hold either ecall number or fault number, should find a
+	# way to differentiate
+	cmpq $ECALL_ALLOCATE_PAGE, %rdi
+	je .Lecall_alloc_page
+
 	cmpq $0, %rax
 	jne .Lprepare_resume
 
+.Lecall_alloc_page:
 	# ECALL return address in RCX (filled by EENTER hardware flow)
 	movq %rcx, %gs:SGX_ECALL_RETURN_ADDR
 
@@ -67,6 +74,9 @@ enclave_entry:
 	cmpq $ECALL_THREAD_RESET, %rdi
 	je .Lhandle_thread_reset
 
+	cmpq $ECALL_ALLOCATE_PAGE, %rdi
+	je .Lhandle_allocate_page
+
 	# Except ecall_thread_reset, ecalls are only used to start a thread (main
 	# or additional threads). We already checked for case of ecall_thread_reset,
 	# so at this point we should only get exactly one ecall per thread
@@ -76,6 +86,8 @@ enclave_entry:
 1:
 	movq $1, %gs:SGX_THREAD_STARTED
 
+.Lhandle_ecall:
+	movq %rax, %r8
 	# calculate enclave base = RBX (trusted) - %gs:SGX_TCS_OFFSET
 	subq %gs:SGX_TCS_OFFSET, %rbx
 	movq %rbx, %rcx
@@ -84,10 +96,11 @@ enclave_entry:
 	addq %gs:SGX_INITIAL_STACK_OFFSET, %rbx
 	movq %rbx, %rsp
 
+.Lhandle_ecall_aux:
 	# clear the rest of register states
 	xorq %rax, %rax
 	xorq %rbx, %rbx
-	xorq %r8, %r8
+	# r8 holds CSSA value as 5th parameter
 	xorq %r9,  %r9
 	xorq %r10, %r10
 	xorq %r11, %r11
@@ -115,7 +128,31 @@ enclave_entry:
 	# to handle_ecall() in enclave_ecalls.c
 	callq handle_ecall
 
+	# For returnable ecalls
+	xorq %rdi, %rdi
+	xorq %rsi, %rsi
+
+	movq %gs:SGX_ECALL_USTACK, %rsp
+	movq %gs:SGX_ECALL_RETURN_ADDR, %rbx
+	jmp .Lclear_and_eexit
+
 	# handle_ecall will only return when invalid parameters has been passed.
+	FAIL_LOOP
+
+.Lhandle_allocate_page:
+	cmpq $1, %rax
+	je 1f
+	FAIL_LOOP
+1:
+	# Save CSSA to r8
+	movq  %rax, %r8
+	subq %gs:SGX_TCS_OFFSET, %rbx
+	movq %rbx, %rcx
+
+	addq %gs:SGX_AUX_STACK_OFFSET, %rbx
+	movq %rbx, %rsp
+
+	jmp .Lhandle_ecall_aux
 	FAIL_LOOP
 
 	# clear TLS variables for thread reuse

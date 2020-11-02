@@ -46,6 +46,10 @@ struct enclave_tls {
     void*    exec_addr;
     uint64_t exec_size;
     int*     clear_child_tid;
+    uint64_t ecall_ustack;
+    uint64_t aux_stack_offset;
+    /* gpr in SSA[1], which is used for cascading EENTER */
+    sgx_pal_gpr_t* gpr1;
     struct untrusted_area untrusted_area_cache;
 };
 

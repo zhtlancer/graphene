@@ -446,6 +446,16 @@ static int initialize_enclave(struct pal_enclave* enclave) {
         area_num++;
     }
 
+    struct mem_area* aux_stack_area = NULL;
+    if (enclave->pal_sec.edmm_mode) {
+        areas[area_num] = (struct mem_area) {
+            .desc = "aux_stack", .skip_eextend = false, .fd = -1,
+            .is_binary = false, .addr = 0, .size = AUX_STACK_SIZE,
+            .prot = PROT_READ | PROT_WRITE, .type = SGX_PAGE_REG
+        };
+        aux_stack_area = &areas[area_num++];
+    }
+
     areas[area_num] = (struct mem_area) {
         .desc = "pal", .skip_eextend = false, .fd = enclave_image,
         .is_binary = true, .addr = 0, .size = 0 /* set below */,
@@ -551,6 +561,10 @@ static int initialize_enclave(struct pal_enclave* enclave) {
                 gs->tcs_offset = tcs_area->addr + g_page_size * t;
                 gs->initial_stack_offset =
                     stack_areas[t].addr + ENCLAVE_STACK_SIZE;
+                if (aux_stack_area) {
+                    gs->aux_stack_offset = aux_stack_area->addr + AUX_STACK_SIZE
+                        - AUX_STACK_SIZE_PER_THREAD * t;
+                }
                 gs->sig_stack_low =
                     sig_stack_areas[t].addr + enclave_secs.base;
                 gs->sig_stack_high =
@@ -561,6 +575,10 @@ static int initialize_enclave(struct pal_enclave* enclave) {
                     enclave_secs.base;
                 gs->gpr = gs->ssa +
                     enclave->ssaframesize - sizeof(sgx_pal_gpr_t);
+                if (enclave->pal_sec.edmm_mode) {
+                    gs->gpr1 = gs->ssa +
+                        enclave->ssaframesize*2 - sizeof(sgx_pal_gpr_t);
+                }
                 gs->manifest_size = manifest_size;
                 gs->heap_min = (void *) enclave_secs.base + heap_min;
                 gs->heap_max = (void *) enclave_secs.base + pal_area->addr - MEMORY_GAP;

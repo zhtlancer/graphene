@@ -104,6 +104,19 @@ static int get_pal_event(int sig) {
     }
 }
 
+static int handle_sigsegv(siginfo_t* info, struct ucontext* uc) {
+    int rc = 0;
+    uintptr_t fault_addr;
+    unsigned long rip;
+
+    fault_addr = (uintptr_t)info->si_addr;
+    rip = pal_ucontext_get_ip(uc);
+
+    ecall_allocate_page(fault_addr);
+
+    return rc;
+}
+
 static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc) {
     int event = get_pal_event(signum);
     assert(event > 0);
@@ -121,7 +134,7 @@ static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc)
         /* exception happened in untrusted PAL code (during syscall handling): fatal in Graphene */
         switch (signum) {
             case SIGSEGV:
-                SGX_DBG(DBG_E, "Segmentation Fault in Untrusted Code (RIP = %08lx)\n", rip);
+                SGX_DBG(DBG_E, "Segmentation Fault in Untrusted Code at %p (RIP = %08lx)\n", (void *)info->si_addr, rip);
                 break;
             case SIGILL:
                 SGX_DBG(DBG_E, "Illegal Instruction in Untrusted Code (RIP = %08lx)\n", rip);
@@ -134,6 +147,24 @@ static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc)
                 break;
         }
         INLINE_SYSCALL(exit, 1, 1);
+    }
+
+    /* Handle AEXs */
+    switch (signum) {
+        case SIGSEGV:
+            /* TODO: do some sanity checking */
+            if (!handle_sigsegv(info, uc))
+                return;
+            break;
+        case SIGBUS:
+            if (!handle_sigsegv(info, uc))
+                return;
+            break;
+        case SIGILL:
+            break;
+        default:
+            SGX_DBG(DBG_E, "Unhandled AEX signum %d (RIP %p)\n", signum, (void *)rip);
+            break;
     }
 
     sgx_raise(event);

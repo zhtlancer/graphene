@@ -24,6 +24,9 @@ DEFAULT_ENCLAVE_SIZE = '256M'
 DEFAULT_THREAD_NUM = 4
 ENCLAVE_HEAP_MIN = offs.DEFAULT_HEAP_MIN
 
+AUX_STACK_SIZE = offs.PAGESIZE * 2
+AUX_STACK_MAX_THREAD = 32
+AUX_STACK_SIZE_PER_THREAD = AUX_STACK_SIZE//AUX_STACK_MAX_THREAD
 
 # Utilities
 
@@ -371,6 +374,7 @@ class MemoryArea:
 
 
 def get_memory_areas(attr, args):
+    edmm_mode = attr['edmm_mode']
     areas = []
     areas.append(
         MemoryArea('ssa',
@@ -387,6 +391,10 @@ def get_memory_areas(attr, args):
     for _ in range(attr['thread_num']):
         areas.append(MemoryArea('sig_stack', size=offs.ENCLAVE_SIG_STACK_SIZE,
                                 flags=PAGEINFO_R | PAGEINFO_W | PAGEINFO_REG))
+
+    if edmm_mode:
+        areas.append(MemoryArea('aux_stack', size=AUX_STACK_SIZE,
+            flags=PAGEINFO_R | PAGEINFO_W | PAGEINFO_REG))
 
     areas.append(MemoryArea('pal', file=args['libpal'], flags=PAGEINFO_REG))
 
@@ -432,6 +440,7 @@ def baseaddr():
 
 
 def gen_area_content(attr, areas):
+    edmm_mode = attr['edmm_mode']
     # pylint: disable=too-many-locals
     manifest_area = find_area(areas, 'manifest')
     exec_area = find_area(areas, 'exec', True)
@@ -441,6 +450,8 @@ def gen_area_content(attr, areas):
     tls_area = find_area(areas, 'tls')
     stacks = find_areas(areas, 'stack')
     sig_stacks = find_areas(areas, 'sig_stack')
+    if edmm_mode:
+        aux_stack = find_area(areas, 'aux_stack')
 
     tcs_data = bytearray(tcs_area.size)
 
@@ -494,6 +505,10 @@ def gen_area_content(attr, areas):
         if exec_area is not None:
             set_tls_field(t, offs.SGX_EXEC_ADDR, baseaddr() + exec_area.addr)
             set_tls_field(t, offs.SGX_EXEC_SIZE, exec_area.size)
+
+        if edmm_mode:
+            set_tls_field(t, offs.SGX_AUX_STACK_OFFSET, aux_stack.addr + AUX_STACK_SIZE - t*AUX_STACK_SIZE_PER_THREAD)
+            set_tls_field(t, offs.SGX_GPR1, ssa + SSAFRAMESIZE*2 - offs.SGX_GPR_SIZE)
 
     tcs_area.content = tcs_data
     tls_area.content = tls_data
