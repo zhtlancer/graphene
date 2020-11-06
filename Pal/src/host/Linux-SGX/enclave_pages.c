@@ -33,6 +33,54 @@ static struct heap_vma g_heap_vma_pool[MAX_HEAP_VMAS];
 static size_t g_heap_vma_num = 0;
 static struct heap_vma* g_free_vma = NULL;
 
+/* EDMM vma */
+static LISTP_TYPE(heap_vma) g_edmm_vma_list = LISTP_INIT;
+static PAL_LOCK g_edmm_vma_lock = LOCK_INIT;
+
+#define MAX_EDMM_VMAS 100000
+static struct heap_vma g_edmm_vma_pool[MAX_EDMM_VMAS];
+static size_t g_edmm_vma_num = 0;
+static struct heap_vma* g_free_edmm_vma = NULL;
+
+/* returns uninitialized heap_vma, the caller is responsible for setting at least bottom/top */
+static struct heap_vma* __alloc_edmm_vma(void) {
+    assert(_DkInternalIsLocked(&g_edmm_vma_lock));
+
+    if (g_free_edmm_vma) {
+        /* simple optimization: if there is a cached free vma object, use it */
+        assert((uintptr_t)g_free_edmm_vma >= (uintptr_t)&g_edmm_vma_pool[0]);
+        assert((uintptr_t)g_free_edmm_vma <= (uintptr_t)&g_edmm_vma_pool[MAX_HEAP_VMAS - 1]);
+
+        struct heap_vma* ret = g_free_edmm_vma;
+        g_free_edmm_vma = NULL;
+        g_edmm_vma_num++;
+        return ret;
+    }
+
+    /* FIXME: this loop may become perf bottleneck on large number of vma objects; however,
+     * experiments show that this number typically does not exceed 20 (thanks to VMA merging) */
+    for (size_t i = 0; i < MAX_EDMM_VMAS; i++) {
+        if (!g_edmm_vma_pool[i].bottom && !g_edmm_vma_pool[i].top) {
+            /* found empty slot in the pool, use it */
+            g_edmm_vma_num++;
+            return &g_edmm_vma_pool[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void __free_edmm_vma(struct heap_vma* vma) {
+    assert(_DkInternalIsLocked(&g_edmm_vma_lock));
+    assert((uintptr_t)vma >= (uintptr_t)&g_edmm_vma_pool[0]);
+    assert((uintptr_t)vma <= (uintptr_t)&g_edmm_vma_pool[MAX_EDMM_VMAS - 1]);
+
+    g_free_edmm_vma  = vma;
+    vma->top    = 0;
+    vma->bottom = 0;
+    g_edmm_vma_num--;
+}
+
 /* returns uninitialized heap_vma, the caller is responsible for setting at least bottom/top */
 static struct heap_vma* __alloc_vma(void) {
     assert(_DkInternalIsLocked(&g_heap_vma_lock));
@@ -218,6 +266,82 @@ static void* __create_vma_and_merge(void* addr, size_t size, bool is_pal_interna
     return addr;
 }
 
+static void* edmm_create_vma_and_merge(void* addr, size_t size,
+                                    struct heap_vma* vma_above) {
+    assert(_DkInternalIsLocked(&g_edmm_vma_lock));
+    assert(addr && size);
+
+    /* find enclosing VMAs and check that pal-internal VMAs do not overlap with normal VMAs */
+    struct heap_vma* vma_below;
+    if (vma_above) {
+        vma_below = LISTP_NEXT_ENTRY(vma_above, &g_edmm_vma_list, list);
+    } else {
+        /* no VMA above `addr`; VMA right below `addr` must be the first (highest-address) in list */
+        vma_below = LISTP_FIRST_ENTRY(&g_edmm_vma_list, struct heap_vma, list);
+    }
+
+    /* create VMA with [addr, addr+size); in case of existing overlapping VMAs, the created VMA is
+     * merged with them and the old VMAs are discarded, similar to mmap(MAX_FIXED) */
+    struct heap_vma* vma = __alloc_edmm_vma();
+    if (!vma)
+        return NULL;
+    vma->bottom          = addr;
+    vma->top             = addr + size;
+
+    /* how much memory was freed because [addr, addr + size) overlapped with VMAs */
+    size_t freed = 0;
+
+    /* Try to merge VMAs as an optimization:
+     *   (1) start from `vma_above` and iterate through VMAs with higher-addresses for merges
+     *   (2) start from `vma_below` and iterate through VMAs with lower-addresses for merges.
+     * Note that we never merge normal VMAs with pal-internal VMAs. */
+    while (vma_above && vma_above->bottom <= vma->top &&
+           vma_above->is_pal_internal == vma->is_pal_internal) {
+        /* newly created VMA grows into above VMA; expand newly created VMA and free above-VMA */
+        SGX_DBG(DBG_M, "Merge %p-%p and %p-%p\n", vma->bottom, vma->top,
+                vma_above->bottom, vma_above->top);
+
+        freed += vma_above->top - vma_above->bottom;
+        struct heap_vma* vma_above_above = LISTP_PREV_ENTRY(vma_above, &g_edmm_vma_list, list);
+
+        vma->bottom = MIN(vma_above->bottom, vma->bottom);
+        vma->top    = MAX(vma_above->top, vma->top);
+        LISTP_DEL(vma_above, &g_edmm_vma_list, list);
+
+        __free_edmm_vma(vma_above);
+        vma_above = vma_above_above;
+    }
+
+    while (vma_below && vma_below->top >= vma->bottom &&
+           vma_below->is_pal_internal == vma->is_pal_internal) {
+        /* newly created VMA grows into below VMA; expand newly create VMA and free below-VMA */
+        SGX_DBG(DBG_M, "Merge %p-%p and %p-%p\n", vma->bottom, vma->top,
+                vma_below->bottom, vma_below->top);
+
+        freed += vma_below->top - vma_below->bottom;
+        struct heap_vma* vma_below_below = LISTP_NEXT_ENTRY(vma_below, &g_edmm_vma_list, list);
+
+        vma->bottom = MIN(vma_below->bottom, vma->bottom);
+        vma->top    = MAX(vma_below->top, vma->top);
+        LISTP_DEL(vma_below, &g_edmm_vma_list, list);
+
+        __free_edmm_vma(vma_below);
+        vma_below = vma_below_below;
+    }
+
+    INIT_LIST_HEAD(vma, list);
+    LISTP_ADD_AFTER(vma, vma_above, &g_edmm_vma_list, list);
+    SGX_DBG(DBG_M, "Created vma %p-%p\n", vma->bottom, vma->top);
+
+    if (vma->bottom >= vma->top) {
+        SGX_DBG(DBG_E, "*** Bad memory bookkeeping: %p - %p ***\n", vma->bottom, vma->top);
+        ocall_exit(/*exitcode=*/1, /*is_exitgroup=*/true);
+    }
+
+    return addr;
+}
+
+
 #define SE_DECLSPEC_ALIGN(x) __attribute__((aligned(x)))
 
 void get_edmm_page_range(void *addr, size_t size, bool executable);
@@ -267,6 +391,18 @@ void get_edmm_page_range(void *start, size_t size, bool executable)
     SE_DECLSPEC_ALIGN(sizeof(sgx_arch_sec_info_t)) sgx_arch_sec_info_t smi = si;
     smi.flags |= SGX_SECINFO_FLAGS_X;
 
+    struct heap_vma* vma_above = NULL;
+    struct heap_vma* vma;
+    _DkInternalLock(&g_edmm_vma_lock);
+
+    LISTP_FOR_EACH_ENTRY(vma, &g_edmm_vma_list, list) {
+        if (vma->bottom < (void *)lo) {
+            break;
+        }
+        vma_above = vma;
+    }
+    edmm_create_vma_and_merge((void *)lo, size, vma_above);
+
     while (lo < addr) {
         int rval;
         addr -= PRESET_PAGESIZE;
@@ -288,6 +424,8 @@ void get_edmm_page_range(void *start, size_t size, bool executable)
             }
         }
     }
+
+    _DkInternalUnlock(&g_edmm_vma_lock);
 }
 
 void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
@@ -372,6 +510,57 @@ int free_enclave_pages(void* addr, size_t size) {
         free_edmm_page_range(addr, size);
     }
 #endif
+    struct heap_vma* vma;
+    struct heap_vma* p;
+
+    _DkInternalLock(&g_edmm_vma_lock);
+#if 0
+    SGX_DBG(DBG_E, "%s:%d freeing [%p, %p)\n", __func__, __LINE__,
+            addr, addr + size);
+#endif
+    LISTP_FOR_EACH_ENTRY_SAFE(vma, p, &g_edmm_vma_list, list) {
+        if (vma->bottom >= addr + size)
+            continue;
+        if (vma->top <= addr)
+            break;
+
+#if 0
+        SGX_DBG(DBG_E, "\tfound vma [%p, %p)\n",
+                vma->bottom, vma->top);
+#endif
+        if (vma->bottom < addr) {
+            struct heap_vma *new = __alloc_edmm_vma();
+            if (!new) {
+                SGX_DBG(DBG_E, "*** Cannot create split VMA during freeing of address %p ***\n",
+                        addr);
+                break;
+            }
+            new->top = addr;
+            new->bottom = vma->bottom;
+            INIT_LIST_HEAD(new, list);
+            LIST_ADD(new, vma, list);
+        }
+
+        void *free_addr = MAX(vma->bottom, addr);
+        size_t free_size = MIN(vma->top, addr + size) - MAX(vma->bottom, addr);
+#if 0
+        SGX_DBG(DBG_E, "\tFreeing EDMM [%p, %p)\n",
+                free_addr, free_addr + free_size);
+        if (free_addr != addr || free_size != size) {
+            SGX_DBG(DBG_E, "%s:%d freeing [%p, %p), vma [%p, %p), free [%p, %p)\n", __func__, __LINE__,
+                    addr, addr + size,
+                    vma->bottom, vma->top, free_addr, free_addr + free_size);
+        }
+#endif
+        free_edmm_page_range(free_addr, free_size);
+
+        vma->bottom = addr + size;
+        if (vma->top <= addr + size) {
+            LISTP_DEL(vma, &g_edmm_vma_list, list);
+            __free_edmm_vma(vma);
+        }
+    }
+    _DkInternalUnlock(&g_edmm_vma_lock);
 
     _DkInternalLock(&g_heap_vma_lock);
 
@@ -383,8 +572,6 @@ int free_enclave_pages(void* addr, size_t size) {
     /* how much memory was actually freed, since [addr, addr + size) can overlap with VMAs */
     size_t freed = 0;
 
-    struct heap_vma* vma;
-    struct heap_vma* p;
     LISTP_FOR_EACH_ENTRY_SAFE(vma, p, &g_heap_vma_list, list) {
         if (vma->bottom >= addr + size)
             continue;
@@ -436,6 +623,35 @@ int free_enclave_pages(void* addr, size_t size) {
 out:
     _DkInternalUnlock(&g_heap_vma_lock);
     return ret;
+}
+
+int zero_enclave_pages(void *start, size_t size)
+{
+    /* For non-EDMM enclave, just zero the whole region */
+    if (pal_sec.edmm_mode == SGX_EDMM_MODE_NOEDMM) {
+        memset(start, 0, size);
+        return 0;
+    }
+
+    /* For EDMM enclave, only zero those regions that has EPC allocated,
+     * unallocated region will be zeroed by EAUG upon allocation
+     */
+    struct heap_vma* vma;
+    _DkInternalLock(&g_edmm_vma_lock);
+    LISTP_FOR_EACH_ENTRY(vma, &g_edmm_vma_list, list) {
+        if (vma->bottom >= start + size)
+            continue;
+        if (vma->top <= start)
+            break;
+
+        void *zero_addr = MAX(vma->bottom, start);
+        size_t zero_size = MIN(vma->top, start+size) - zero_addr;
+        memset(zero_addr, 0, zero_size);
+    }
+
+    _DkInternalUnlock(&g_edmm_vma_lock);
+
+    return 0;
 }
 
 /* returns current highest available address on the enclave heap */

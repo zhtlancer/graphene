@@ -54,7 +54,7 @@ int _DkVirtualMemoryAlloc(void** paddr, uint64_t size, int alloc_type, int prot)
     if (!mem)
         return addr ? -PAL_ERROR_DENIED : -PAL_ERROR_NOMEM;
 
-    memset(mem, 0, size);
+    zero_enclave_pages(mem, size);
 
     *paddr = mem;
     return 0;
