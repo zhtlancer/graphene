@@ -28,6 +28,7 @@
 #include "sgx_internal.h"
 #include "sgx_log.h"
 #include "sgx_tls.h"
+#include "sgx_edmm.h"
 
 #include <asm/errno.h>
 #include <asm/fcntl.h>
@@ -358,6 +359,22 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
         area_num++;
     }
 
+    struct mem_area* aux_stack_area = NULL;
+    urts_log_debug("enclave->pal_sec.edmm_enable_heap = 0x%02x\n", enclave->pal_sec.edmm_enable_heap);
+    if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
+        areas[area_num] = (struct mem_area) {
+            .desc = "aux_stack",
+            .skip_eextend = false,
+            .data_src = ZERO,
+            .addr = 0,
+            .size = AUX_STACK_SIZE,
+            .prot = PROT_READ | PROT_WRITE,
+            .type = SGX_PAGE_REG
+        };
+        aux_stack_area = &areas[area_num++];
+        urts_log_debug("aux_stack_area: %p\n", aux_stack_area);
+    }
+
     areas[area_num] = (struct mem_area){.desc         = "pal",
                                         .skip_eextend = false,
                                         .data_src     = ELF_FD,
@@ -425,10 +442,19 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
                 gs->enclave_size = enclave->size;
                 gs->tcs_offset = tcs_area->addr - enclave->baseaddr + g_page_size * t;
                 gs->initial_stack_addr = stack_areas[t].addr + ENCLAVE_STACK_SIZE;
+                if (aux_stack_area) {
+                    gs->aux_stack_offset = aux_stack_area->addr + AUX_STACK_SIZE
+                        - AUX_STACK_SIZE_PER_THREAD * t;
+                }
                 gs->sig_stack_low = sig_stack_areas[t].addr;
                 gs->sig_stack_high = sig_stack_areas[t].addr + ENCLAVE_SIG_STACK_SIZE;
                 gs->ssa = (void*)ssa_area->addr + enclave->ssa_frame_size * SSA_FRAME_NUM * t;
                 gs->gpr = gs->ssa + enclave->ssa_frame_size - sizeof(sgx_pal_gpr_t);
+                urts_log_debug("gpr0 %p\n", gs->gpr);
+                if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
+                    gs->gpr1 = gs->ssa + enclave->ssa_frame_size*2 - sizeof(sgx_pal_gpr_t);
+                    urts_log_debug("gpr1 %p\n", gs->gpr1);
+                }
                 gs->manifest_size = manifest_size;
                 gs->heap_min = (void*)enclave_heap_min;
                 gs->heap_max = (void*)pal_area->addr;
@@ -749,12 +775,13 @@ static int parse_loader_config(char* manifest, struct pal_enclave* enclave_info)
 
     int64_t edmm_enable_heap;
     ret = toml_int_in(manifest_root, "sgx.edmm_enable_heap", /*defaultval=*/0, &edmm_enable_heap);
-    if (ret < 0 || (edmm_enable_heap != 0 && edmm_enable_heap != 1)) {
-        urts_log_error("Cannot parse 'sgx.edmm_enable_heap' (the value must be 0 or 1)\n");
+    if (ret < 0) {
+        urts_log_error("Cannot parse 'sgx.edmm_enable_heap'\n");
         ret = -EINVAL;
         goto out;
     }
-    enclave_info->pal_sec.edmm_enable_heap = !!edmm_enable_heap;
+    enclave_info->pal_sec.edmm_enable_heap = edmm_enable_heap;
+    urts_log_debug("'sgx.edmm_enable_heap' = 0x%02lx\n", edmm_enable_heap);
 
     char* profile_str = NULL;
     ret = toml_string_in(manifest_root, "sgx.profile.enable", &profile_str);

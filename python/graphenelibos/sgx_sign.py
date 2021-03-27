@@ -36,6 +36,10 @@ ARCHITECTURE = 'amd64'
 DEFAULT_ENCLAVE_SIZE = '256M'
 DEFAULT_THREAD_NUM = 4
 
+AUX_STACK_SIZE = offs.PAGESIZE * 8
+AUX_STACK_MAX_THREAD = 8
+AUX_STACK_SIZE_PER_THREAD = AUX_STACK_SIZE//AUX_STACK_MAX_THREAD
+
 # Utilities
 
 ZERO_PAGE = bytes(offs.PAGESIZE)
@@ -265,6 +269,7 @@ class MemoryArea:
 
 
 def get_memory_areas(attr, args):
+    edmm_enable_heap = attr['edmm_enable_heap']
     areas = []
     areas.append(
         MemoryArea('ssa',
@@ -281,6 +286,9 @@ def get_memory_areas(attr, args):
     for _ in range(attr['thread_num']):
         areas.append(MemoryArea('sig_stack', size=offs.ENCLAVE_SIG_STACK_SIZE,
                                 flags=PAGEINFO_R | PAGEINFO_W | PAGEINFO_REG))
+    if (edmm_enable_heap & 0x2) == 0x2:
+        areas.append(MemoryArea('aux_stack', size=AUX_STACK_SIZE,
+            flags=PAGEINFO_R | PAGEINFO_W | PAGEINFO_REG))
 
     areas.append(MemoryArea('pal', elf_filename=args['libpal'], flags=PAGEINFO_REG))
     return areas
@@ -316,6 +324,7 @@ def entry_point(elf_path):
 
 def gen_area_content(attr, areas, enclave_base, enclave_heap_min):
     # pylint: disable=too-many-locals
+    edmm_enable_heap = attr['edmm_enable_heap']
     manifest_area = find_area(areas, 'manifest')
     pal_area = find_area(areas, 'pal')
     ssa_area = find_area(areas, 'ssa')
@@ -323,6 +332,9 @@ def gen_area_content(attr, areas, enclave_base, enclave_heap_min):
     tls_area = find_area(areas, 'tls')
     stacks = find_areas(areas, 'stack')
     sig_stacks = find_areas(areas, 'sig_stack')
+
+    if (edmm_enable_heap & 0x2) == 0x2:
+        aux_stack = find_area(areas, 'aux_stack')
 
     tcs_data = bytearray(tcs_area.size)
 
@@ -370,6 +382,10 @@ def gen_area_content(attr, areas, enclave_base, enclave_heap_min):
         set_tls_field(t, offs.SGX_MANIFEST_SIZE, len(manifest_area.content))
         set_tls_field(t, offs.SGX_HEAP_MIN, enclave_heap_min)
         set_tls_field(t, offs.SGX_HEAP_MAX, enclave_heap_max)
+
+        if (edmm_enable_heap & 0x2) == 0x2:
+            set_tls_field(t, offs.SGX_AUX_STACK_OFFSET, aux_stack.addr + AUX_STACK_SIZE - t*AUX_STACK_SIZE_PER_THREAD)
+            set_tls_field(t, offs.SGX_GPR1, ssa + offs.SSA_FRAME_SIZE*2 - offs.SGX_GPR_SIZE)
 
     tcs_area.content = tcs_data
     tls_area.content = tls_data
@@ -526,7 +542,7 @@ def generate_measurement(enclave_base, attr, areas):
                               desc, flags)
         else:
             # Skip EADDing of heap ("free") pages when EDMM is enabled.
-            if edmm_enable_heap == 1 and area.desc == "free":
+            if edmm_enable_heap != 0 and area.desc == "free":
                 continue
             for addr in range(area.addr, area.addr + area.size, offs.PAGESIZE):
                 data = ZERO_PAGE
@@ -720,7 +736,7 @@ def main_sign(manifest, args):
     print('    attr.xfrm:        %016x' % int.from_bytes(attr['xfrms'], byteorder='big'))
     print('    misc_select:      %08x' % int.from_bytes(attr['misc_select'], byteorder='big'))
     print('    date:             %d-%02d-%02d' % (attr['year'], attr['month'], attr['day']))
-    print("    edmm_enable_heap: %d" % (attr['edmm_enable_heap']))
+    print("    edmm_enable_heap: 0x%x" % (attr['edmm_enable_heap']))
 
     if manifest_sgx['remote_attestation'] == 1:
         spid = manifest_sgx.get('ra_client_spid', '')

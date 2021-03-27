@@ -22,7 +22,7 @@ struct pal_sec {
 
     /* remaining heap usable by application */
     PAL_PTR heap_min, heap_max;
-    bool edmm_enable_heap;
+    PAL_FLG edmm_enable_heap;
 
     PAL_SEC_STR exec_name; // It's actually URI, not name. TODO: rename and migrate to LibOS.
 

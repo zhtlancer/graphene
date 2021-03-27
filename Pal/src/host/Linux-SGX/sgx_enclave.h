@@ -6,3 +6,5 @@ int ecall_enclave_start(char* libpal_uri, char* args, size_t args_size, char* en
 int ecall_thread_start(void);
 
 int ecall_thread_reset(void);
+
+int ecall_allocate_page(uintptr_t addr);

@@ -195,6 +195,7 @@ int create_enclave(sgx_arch_secs_t* secs, sgx_arch_token_t* token) {
     urts_log_debug("    ssa_frame_size: %d\n",       secs->ssa_frame_size);
     urts_log_debug("    isv_prod_id:    0x%08x\n",   secs->isv_prod_id);
     urts_log_debug("    isv_svn:        0x%08x\n",   secs->isv_svn);
+    urts_log_debug("    edmm_enable_heap:   0x%08x\n",   g_pal_enclave.pal_sec.edmm_enable_heap);
 
     return 0;
 }

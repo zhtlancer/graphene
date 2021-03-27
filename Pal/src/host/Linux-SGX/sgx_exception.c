@@ -118,6 +118,19 @@ static bool interrupted_in_enclave(struct ucontext* uc) {
     return rip >= (unsigned long)async_exit_pointer && rip < (unsigned long)async_exit_pointer_end;
 }
 
+static int handle_sigsegv(siginfo_t* info, struct ucontext* uc) {
+    int rc = 0;
+    uintptr_t fault_addr;
+
+    __UNUSED(uc);
+
+    fault_addr = (uintptr_t)info->si_addr;
+
+    ecall_allocate_page(fault_addr);
+
+    return rc;
+}
+
 static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc) {
     int event = get_pal_event(signum);
     assert(event > 0);
@@ -129,18 +142,38 @@ static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc)
         for (size_t i = 0; i < g_rpc_queue->rpc_threads_cnt; i++)
             INLINE_SYSCALL(tkill, 2, g_rpc_queue->rpc_threads[i], SIGUSR2);
 
+    unsigned long rip = ucontext_get_ip(uc);
+
     if (interrupted_in_enclave(uc)) {
         /* exception happened in app/LibOS/trusted PAL code, handle signal inside enclave */
         get_tcb_urts()->sync_signal_cnt++;
+
+        /* Handle AEXs */
+        switch (signum) {
+            case SIGSEGV:
+                /* TODO: do some sanity checking */
+                if (!handle_sigsegv(info, uc))
+                    return;
+                break;
+            case SIGBUS:
+                if (!handle_sigsegv(info, uc))
+                    return;
+                break;
+            case SIGILL:
+                break;
+            default:
+                urts_log_error("Unhandled AEX signum %d (RIP %p)\n", signum, (void *)rip);
+                break;
+        }
+
         sgx_raise(event);
         return;
     }
 
     /* exception happened in untrusted PAL code (during syscall handling): fatal in Graphene */
-    unsigned long rip = ucontext_get_ip(uc);
     switch (signum) {
         case SIGSEGV:
-            urts_log_error("Segmentation Fault in Untrusted Code (RIP = %08lx)\n", rip);
+            urts_log_error("Segmentation Fault in Untrusted Code (RIP = %08lx async_exit_pointer %08lx async_exit_pointer_end %08lx)\n", rip, async_exit_pointer, async_exit_pointer_end);
             break;
         case SIGILL:
             urts_log_error("Illegal Instruction in Untrusted Code (RIP = %08lx)\n", rip);

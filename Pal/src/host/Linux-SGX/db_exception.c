@@ -223,6 +223,7 @@ void _DkExceptionHandler(unsigned int exit_info, sgx_cpu_context_t* uc,
     if (ADDR_IN_PAL(uc->rip) &&
         /* event isn't asynchronous (i.e., synchronous exception) */
         event_num != PAL_EVENT_QUIT &&
+        event_num != PAL_EVENT_MEMFAULT &&
         event_num != PAL_EVENT_INTERRUPTED) {
         printf("*** Unexpected exception occurred inside PAL at RIP = +0x%08lx! ***\n",
                uc->rip - (uintptr_t)TEXT_START);
