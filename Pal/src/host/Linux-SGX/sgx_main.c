@@ -360,7 +360,6 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
     }
 
     struct mem_area* aux_stack_area = NULL;
-    urts_log_debug("enclave->pal_sec.edmm_enable_heap = 0x%02x\n", enclave->pal_sec.edmm_enable_heap);
     if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
         areas[area_num] = (struct mem_area) {
             .desc = "aux_stack",
@@ -450,10 +449,8 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
                 gs->sig_stack_high = sig_stack_areas[t].addr + ENCLAVE_SIG_STACK_SIZE;
                 gs->ssa = (void*)ssa_area->addr + enclave->ssa_frame_size * SSA_FRAME_NUM * t;
                 gs->gpr = gs->ssa + enclave->ssa_frame_size - sizeof(sgx_pal_gpr_t);
-                urts_log_debug("gpr0 %p\n", gs->gpr);
                 if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
                     gs->gpr1 = gs->ssa + enclave->ssa_frame_size*2 - sizeof(sgx_pal_gpr_t);
-                    urts_log_debug("gpr1 %p\n", gs->gpr1);
                 }
                 gs->manifest_size = manifest_size;
                 gs->heap_min = (void*)enclave_heap_min;
@@ -781,7 +778,6 @@ static int parse_loader_config(char* manifest, struct pal_enclave* enclave_info)
         goto out;
     }
     enclave_info->pal_sec.edmm_enable_heap = edmm_enable_heap;
-    urts_log_debug("'sgx.edmm_enable_heap' = 0x%02lx\n", edmm_enable_heap);
 
     char* profile_str = NULL;
     ret = toml_string_in(manifest_root, "sgx.profile.enable", &profile_str);

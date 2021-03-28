@@ -266,6 +266,10 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     void* addr = (void*)((char*)lo + size);
     int ret = 0;
 
+    if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NAIVE)) {
+        log_debug("%s: edmm alloc start_addr = %p, size = %lx\n", __func__, start, size);
+    }
+
     __sgx_mem_aligned sgx_arch_sec_info_t secinfo;
     secinfo.flags = SGX_SECINFO_FLAGS_R | SGX_SECINFO_FLAGS_W | SGX_SECINFO_FLAGS_REG |
                     SGX_SECINFO_FLAGS_PENDING;
@@ -288,9 +292,8 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
 
         ret = sgx_accept(&secinfo, addr);
         if (ret) {
-            // Try not to do printing during ecall
-            //log_error("EDMM accept page failed: %p %d\n", addr, ret);
-            goto out;
+            // TODO: need to judge whether the page has already been EACCEPTed
+            continue;
         }
 
         /* All new pages will have RW permissions initially, so after EAUG/EACCEPT, extend
@@ -303,7 +306,6 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
         }
     }
 
-out:
     _DkInternalUnlock(&g_edmm_vma_lock);
     return ret;
 }
@@ -490,8 +492,9 @@ int free_enclave_pages(void* addr, size_t size) {
     struct heap_vma* vma;
     struct heap_vma* p;
 
-    if (is_sgx_edmm_mempool(g_pal_sec.edmm_enable_heap, SGX_EDMM_MEMPOOL_NOFREE))
-            goto skip_edmm_free;
+    if (is_sgx_edmm_mempool(g_pal_sec.edmm_enable_heap, SGX_EDMM_MEMPOOL_NOFREE)) {
+        goto skip_edmm_free;
+    }
 
     _DkInternalLock(&g_edmm_vma_lock);
 #if 0
