@@ -1,6 +1,9 @@
 #include "sgx_edmm.h"
 #include "enclave_pages.h"
 
+#include <asm/errno.h>
+#include <stdalign.h>
+
 #include "api.h"
 #include "list.h"
 #include "pal_error.h"
@@ -224,11 +227,11 @@ int free_edmm_page_range(void* start, size_t size) {
     void* end = (void*)((char*)addr + size);
     int ret = 0;
 
-    __sgx_mem_aligned sgx_arch_sec_info_t secinfo;
+    alignas(64) sgx_arch_sec_info_t secinfo;
     secinfo.flags = SGX_SECINFO_FLAGS_TRIM | SGX_SECINFO_FLAGS_MODIFIED;
     memset(&secinfo.reserved, 0, sizeof(secinfo.reserved));
 
-    unsigned int nr_pages = size / g_pal_state.alloc_align;
+    size_t nr_pages = size / g_pal_state.alloc_align;
     ret = ocall_trim_epc_pages(addr, nr_pages);
     if (ret < 0) {
         log_debug("EPC trim page on [%p, %p) failed (%d)\n", addr, end, ret);
@@ -240,13 +243,13 @@ int free_edmm_page_range(void* start, size_t size) {
         ret = sgx_accept(&secinfo, page_addr);
         if (ret) {
             log_debug("EDMM accept page failed while trimming: %p %d\n", page_addr, ret);
-            return -1;
+            return -EFAULT;
         }
     }
 
     ret = ocall_notify_accept(addr, nr_pages);
     if (ret < 0) {
-        log_debug("EPC notify_accept on [%p, %p), %d pages failed (%d)\n", addr, end, nr_pages, ret);
+        log_debug("EPC notify_accept on [%p, %p), %ld pages failed (%d)\n", addr, end, nr_pages, ret);
         return ret;
     }
 
@@ -270,7 +273,7 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
         log_debug("%s: edmm alloc start_addr = %p, size = %lx\n", __func__, start, size);
     }
 
-    __sgx_mem_aligned sgx_arch_sec_info_t secinfo;
+    alignas(64) sgx_arch_sec_info_t secinfo;
     secinfo.flags = SGX_SECINFO_FLAGS_R | SGX_SECINFO_FLAGS_W | SGX_SECINFO_FLAGS_REG |
                     SGX_SECINFO_FLAGS_PENDING;
     memset(&secinfo.reserved, 0, sizeof(secinfo.reserved));
@@ -293,13 +296,16 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
         ret = sgx_accept(&secinfo, addr);
         if (ret) {
             // TODO: need to judge whether the page has already been EACCEPTed
+            if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NAIVE)) {
+                log_debug("EDMM accept page failed: %p %d\n", addr, ret);
+            }
             continue;
         }
 
         /* All new pages will have RW permissions initially, so after EAUG/EACCEPT, extend
          * permission of a VALID enclave page (if needed). */
         if (executable) {
-            __sgx_mem_aligned sgx_arch_sec_info_t secinfo_extend = secinfo;
+            alignas(64) sgx_arch_sec_info_t secinfo_extend = secinfo;
 
             secinfo_extend.flags |= SGX_SECINFO_FLAGS_X;
             sgx_modpe(&secinfo_extend, addr);
