@@ -307,12 +307,8 @@ int free_edmm_page_range(void* start, size_t size) {
  * 3. Enclave continues the same EACCEPT and the instruction succeeds this time. */
 int get_edmm_page_range(void* start, size_t size, bool executable) {
     void* lo = start;
-    void* addr = (void*)((char*)lo + size);
+    void* addr;
     int ret = 0;
-
-    if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NAIVE)) {
-        log_debug("%s: edmm alloc start_addr = %p, size = %lx\n", __func__, start, size);
-    }
 
 #if PRINT_ENCLAVE_MEM_STAT
     __atomic_add_fetch(&g_stats_edmm_alloc_cnt, 1, __ATOMIC_SEQ_CST);
@@ -320,16 +316,37 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     if (size > __atomic_load_n(&g_stats_edmm_alloc_max_size, __ATOMIC_SEQ_CST))
         __atomic_store_n(&g_stats_edmm_alloc_max_size, size, __ATOMIC_SEQ_CST);
 
-    __atomic_add_fetch(&g_stats_edmm_runtime_size, size, __ATOMIC_SEQ_CST);
-    if (__atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_edmm_runtime_size_max, __ATOMIC_SEQ_CST))
-        __atomic_store_n(&g_stats_edmm_runtime_size_max, __atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
 #endif
+
+    if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NAIVE)) {
+        log_debug("%s: edmm alloc start_addr = %p, size = %lx\n", __func__, start, size);
+    }
+
+    if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)
+            && is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+
+        size += g_page_size * EDMM_BATCH_SIZE - g_page_size;
+#if 0
+        int i;
+        for (i = 1; ; i++) {
+            unsigned long tmp_addr = (unsigned long)start + g_page_size * i;
+            if (!edmm_bitmap_is_set(g_pal_sec.bitmap_i, tmp_addr)
+                    || edmm_bitmap_is_set(g_pal_sec.bitmap_g, tmp_addr))
+                break;
+            if (edmm_bitmap_is_set(g_pal_sec.bitmap_i, (unsigned long)start + g_page_size * i))
+                size += g_page_size;
+        }
+#endif
+    }
+
+    addr = lo + size;
 
     alignas(64) sgx_arch_sec_info_t secinfo;
     secinfo.flags = SGX_SECINFO_FLAGS_R | SGX_SECINFO_FLAGS_W | SGX_SECINFO_FLAGS_REG |
                     SGX_SECINFO_FLAGS_PENDING;
     memset(&secinfo.reserved, 0, sizeof(secinfo.reserved));
 
+#if 0
     struct heap_vma* vma_above = NULL;
     struct heap_vma* vma;
     _DkInternalLock(&g_edmm_vma_lock);
@@ -343,10 +360,22 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     edmm_create_vma_and_merge((void *)lo, size, vma_above);
 
     _DkInternalUnlock(&g_edmm_vma_lock);
+#endif
 
     while (lo < addr) {
         addr = (void*)((char*)addr - g_pal_state.alloc_align);
 
+        if (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+            if (!edmm_bitmap_is_set(g_pal_sec.bitmap_i, (unsigned long)addr))
+                continue;
+
+            edmm_bitmap_set(g_pal_sec.bitmap_g, (unsigned long)addr);
+        }
+#if PRINT_ENCLAVE_MEM_STAT
+        __atomic_add_fetch(&g_stats_edmm_runtime_size, g_page_size, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_edmm_runtime_size_max, __ATOMIC_SEQ_CST))
+            __atomic_store_n(&g_stats_edmm_runtime_size_max, __atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+#endif
         ret = sgx_accept(&secinfo, addr);
         if (ret) {
             // TODO: need to judge whether the page has already been EACCEPTed
@@ -541,6 +570,13 @@ void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
 out:
     _DkInternalUnlock(&g_heap_vma_lock);
 
+    if (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP) && ret != NULL) {
+        unsigned long tmp_addr = (unsigned long)ret;
+        unsigned long incr;
+        for (incr = 0; incr < size; incr += g_page_size)
+            edmm_bitmap_set(g_pal_sec.bitmap_o, tmp_addr+incr);
+    }
+
     /* In order to prevent already accepted pages from being accepted again, we track EPC pages that
      * aren't accepted yet (unallocated heap) and call EACCEPT only on those EPC pages. */
     if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NAIVE) && ret != NULL) {
@@ -579,6 +615,7 @@ int free_enclave_pages(void* addr, size_t size) {
         goto skip_edmm_free;
     }
 
+#if 0
     _DkInternalLock(&g_edmm_vma_lock);
 #if 0
     log_debug("%s:%d freeing [%p, %p)\n", __func__, __LINE__,
@@ -633,6 +670,34 @@ int free_enclave_pages(void* addr, size_t size) {
     __atomic_add_fetch(&g_stats_edmm_freed_size, __freed, __ATOMIC_SEQ_CST);
 #endif
     _DkInternalUnlock(&g_edmm_vma_lock);
+#endif
+
+    void *tmp_addr = addr;
+    void *end_addr = addr + size;
+    //log_error("%s:%d addr %p size %lu end_addr %p\n", __func__, __LINE__, addr, size, addr+size);
+    while (1) {
+        while (tmp_addr < end_addr && !edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)tmp_addr))
+            tmp_addr += g_page_size;
+
+        if (tmp_addr >= end_addr)
+            break;
+
+        void *free_addr = tmp_addr;
+
+        for (tmp_addr = free_addr + g_page_size;
+                tmp_addr < end_addr && edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)tmp_addr);
+                tmp_addr += g_page_size) {
+            edmm_bitmap_clear(g_pal_sec.bitmap_g, (unsigned long)tmp_addr);
+        }
+
+        size_t free_size = tmp_addr - free_addr;
+#if PRINT_ENCLAVE_MEM_STAT
+        __atomic_add_fetch(&g_stats_edmm_freed_size, free_size, __ATOMIC_SEQ_CST);
+#endif
+
+        //log_error("%s:%d free_addr %p end_addr %p free_size %lu\n", __func__, __LINE__, free_addr, tmp_addr, free_size);
+        free_edmm_page_range(free_addr, free_size);
+    }
 
 skip_edmm_free:
     _DkInternalLock(&g_heap_vma_lock);

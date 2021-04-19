@@ -8,6 +8,7 @@
 #include "sgx_enclave.h"
 #include "sgx_internal.h"
 #include "sgx_log.h"
+#include "sgx_edmm.h"
 
 static int g_gsgx_device = -1;
 int g_isgx_device = -1;
@@ -185,6 +186,24 @@ int create_enclave(sgx_arch_secs_t* secs, sgx_arch_token_t* token) {
     }
 
     secs->attributes.flags |= SGX_FLAGS_INITIALIZED;
+
+    if (is_sgx_edmm_batch(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+        addr = INLINE_SYSCALL(mmap, 6, NULL, 1024 * 1024 * 1024,
+                PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
+                -1, 0);
+        g_pal_enclave.pal_sec.bitmap_o = (void *)addr;
+        addr = INLINE_SYSCALL(mmap, 6, NULL, 1024 * 1024 * 1024,
+                PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
+                -1, 0);
+        g_pal_enclave.pal_sec.bitmap_i = (void *)addr;
+        addr = INLINE_SYSCALL(mmap, 6, NULL, 1024 * 1024 * 1024,
+                PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
+                -1, 0);
+        g_pal_enclave.pal_sec.bitmap_g = (void *)addr;
+
+        urts_log_error("Batch bitmaps: o %p i %p g %p\n", g_pal_enclave.pal_sec.bitmap_o,
+                g_pal_enclave.pal_sec.bitmap_i, g_pal_enclave.pal_sec.bitmap_g);
+    }
 
     urts_log_debug("enclave created:\n");
     urts_log_debug("    base:           0x%016lx\n", secs->base);
@@ -427,6 +446,20 @@ int init_enclave(sgx_arch_secs_t* secs, sgx_arch_enclave_css_t* sigstruct,
     if (IS_ERR(ret)) {
         urts_log_error("Cannot unmap zero pages %d\n", ret);
         return -ERRNO(ret);
+    }
+
+    if (is_sgx_edmm_batch(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+        param.addr = enclave_valid_addr;
+        param.sigstruct = g_pal_enclave.pal_sec.bitmap_o;
+        param.einittoken = g_pal_enclave.pal_sec.bitmap_i;
+        ret = INLINE_SYSCALL(ioctl, 3, g_isgx_device, SGX_IOC_ENCLAVE_EMCB_BASE,
+                &param);
+
+        if (IS_ERR(ret)) {
+            urts_log_error("Failed to set bitmap addr via IOCTL (%d)\n",
+                    ret);
+            return -EINVAL;
+        }
     }
 
     return 0;

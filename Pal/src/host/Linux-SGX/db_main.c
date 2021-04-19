@@ -596,6 +596,10 @@ noreturn void pal_linux_main(char* uptr_libpal_uri, size_t libpal_uri_len, char*
     /* Extract EDMM mode */
     g_pal_sec.edmm_enable_heap = sec_info.edmm_enable_heap;
 
+    g_pal_sec.bitmap_i = sec_info.bitmap_i;
+    g_pal_sec.bitmap_o = sec_info.bitmap_o;
+    g_pal_sec.bitmap_g = sec_info.bitmap_g;
+
     /* For {p,u,g}ids we can at least do some minimal checking. */
 
     /* ppid should be positive when interpreted as signed. It's 0 if we don't
