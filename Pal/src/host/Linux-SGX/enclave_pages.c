@@ -323,7 +323,8 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     }
 
     if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)
-            && is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+            && (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)
+                || is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_WS_USE))) {
 
         size += g_page_size * EDMM_BATCH_SIZE - g_page_size;
 #if 0
@@ -365,12 +366,14 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     while (lo < addr) {
         addr = (void*)((char*)addr - g_pal_state.alloc_align);
 
-        if (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)) {
+        if (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)
+                || is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_WS_USE)) {
             if (!edmm_bitmap_is_set(g_pal_sec.bitmap_i, (unsigned long)addr))
                 continue;
 
-            edmm_bitmap_set(g_pal_sec.bitmap_g, (unsigned long)addr);
         }
+        //if (edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)addr))
+        //    continue;
 #if PRINT_ENCLAVE_MEM_STAT
         __atomic_add_fetch(&g_stats_edmm_runtime_size, g_page_size, __ATOMIC_SEQ_CST);
         if (__atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_edmm_runtime_size_max, __ATOMIC_SEQ_CST))
@@ -384,6 +387,10 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
             }
             continue;
         }
+        // assume bitmap used in all cases
+        edmm_bitmap_set(g_pal_sec.bitmap_g, (unsigned long)addr);
+        if (is_sgx_edmm_batch(g_pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_WS_TRAIN))
+            edmm_bitmap_set(g_pal_sec.bitmap_w, (unsigned long)addr);
 
         /* All new pages will have RW permissions initially, so after EAUG/EACCEPT, extend
          * permission of a VALID enclave page (if needed). */
@@ -611,7 +618,8 @@ int free_enclave_pages(void* addr, size_t size) {
     size_t __freed = 0;
 #endif
 
-    if (is_sgx_edmm_mempool(g_pal_sec.edmm_enable_heap, SGX_EDMM_MEMPOOL_NOFREE)) {
+    if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NONE)
+            || is_sgx_edmm_mempool(g_pal_sec.edmm_enable_heap, SGX_EDMM_MEMPOOL_NOFREE)) {
         goto skip_edmm_free;
     }
 

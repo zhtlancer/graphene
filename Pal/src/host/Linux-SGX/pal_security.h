@@ -24,7 +24,7 @@ struct pal_sec {
     PAL_PTR heap_min, heap_max;
     PAL_FLG edmm_enable_heap;
 
-    PAL_PTR bitmap_o, bitmap_i, bitmap_g;
+    PAL_PTR bitmap_o, bitmap_i, bitmap_g, bitmap_w;
 
     PAL_SEC_STR exec_name; // It's actually URI, not name. TODO: rename and migrate to LibOS.
 

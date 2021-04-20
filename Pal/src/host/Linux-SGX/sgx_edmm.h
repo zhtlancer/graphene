@@ -23,11 +23,14 @@ static inline int is_sgx_edmm_mempool(unsigned long mode, unsigned long test_mod
 #define SGX_EDMM_BATCH_MASK     (0xF00UL)
 #define SGX_EDMM_BATCH_NONE     (0x000UL)
 #define SGX_EDMM_BATCH_BITMAP   (0x100UL)
+#define SGX_EDMM_BATCH_WS_TRAIN (0x400UL)
+#define SGX_EDMM_BATCH_WS_USE   (0x800UL)
 
 static inline int is_sgx_edmm_batch(unsigned long mode, unsigned long test_mode) {
     return (mode & SGX_EDMM_BATCH_MASK) == test_mode;
 }
 
+#define EDMM_BITMAP_SIZE (128*1024)
 #define EDMM_BATCH_SIZE (64)
 #define PAGE_SHIFT (12)
 

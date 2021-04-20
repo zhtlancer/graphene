@@ -599,6 +599,7 @@ noreturn void pal_linux_main(char* uptr_libpal_uri, size_t libpal_uri_len, char*
     g_pal_sec.bitmap_i = sec_info.bitmap_i;
     g_pal_sec.bitmap_o = sec_info.bitmap_o;
     g_pal_sec.bitmap_g = sec_info.bitmap_g;
+    g_pal_sec.bitmap_w = sec_info.bitmap_w;
 
     /* For {p,u,g}ids we can at least do some minimal checking. */
 
