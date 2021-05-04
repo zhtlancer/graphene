@@ -372,8 +372,8 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
                 continue;
 
         }
-        //if (edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)addr))
-        //    continue;
+        if (edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)addr))
+            continue;
 #if PRINT_ENCLAVE_MEM_STAT
         __atomic_add_fetch(&g_stats_edmm_runtime_size, g_page_size, __ATOMIC_SEQ_CST);
         if (__atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_edmm_runtime_size_max, __ATOMIC_SEQ_CST))
@@ -783,6 +783,9 @@ out:
 
 int zero_enclave_pages(void *start, size_t size)
 {
+    void *tmp_addr = start;
+    void *end_addr = start + size;
+    PAL_PTR bitmap = g_pal_sec.bitmap_g;
     /* For non-EDMM enclave, just zero the whole region */
     if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NONE)) {
         memset(start, 0, size);
@@ -792,20 +795,23 @@ int zero_enclave_pages(void *start, size_t size)
     /* For EDMM enclave, only zero those regions that has EPC allocated,
      * unallocated region will be zeroed by EAUG upon allocation
      */
-    struct heap_vma* vma;
-    _DkInternalLock(&g_edmm_vma_lock);
-    LISTP_FOR_EACH_ENTRY(vma, &g_edmm_vma_list, list) {
-        if (vma->bottom >= start + size)
-            continue;
-        if (vma->top <= start)
+    while (1) {
+        for ( ;
+                tmp_addr < end_addr && !edmm_bitmap_is_set(bitmap, (unsigned long)tmp_addr);
+                tmp_addr += g_page_size)
+            /* Do nothing */;
+
+        if (tmp_addr >= end_addr)
             break;
+        void *zero_addr = tmp_addr;
 
-        void *zero_addr = MAX(vma->bottom, start);
-        size_t zero_size = MIN(vma->top, start+size) - zero_addr;
-        memset(zero_addr, 0, zero_size);
+        for (tmp_addr = zero_addr + g_page_size;
+                tmp_addr < end_addr && edmm_bitmap_is_set(bitmap, (unsigned long)tmp_addr);
+                tmp_addr += g_page_size)
+            /* Do nothing */;
+
+        memset(zero_addr, 0, tmp_addr - zero_addr);
     }
-
-    _DkInternalUnlock(&g_edmm_vma_lock);
 
     return 0;
 }
