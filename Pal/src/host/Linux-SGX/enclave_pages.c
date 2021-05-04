@@ -692,6 +692,7 @@ int free_enclave_pages(void* addr, size_t size) {
 
         void *free_addr = tmp_addr;
 
+        edmm_bitmap_clear(g_pal_sec.bitmap_g, (unsigned long)tmp_addr);
         for (tmp_addr = free_addr + g_page_size;
                 tmp_addr < end_addr && edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)tmp_addr);
                 tmp_addr += g_page_size) {
