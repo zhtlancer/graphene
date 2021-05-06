@@ -5,7 +5,7 @@
 #define SGX_EDMM_MODE_MASK  (0xFUL)
 #define SGX_EDMM_MODE_NONE  (0x0UL)
 #define SGX_EDMM_MODE_NAIVE (0x1UL)
-#define SGX_EDMM_MODE_LAZY  (0x2UL)
+#define SGX_EDMM_MODE_DEMAND    (0x2UL)
 
 static inline int is_sgx_edmm_mode(unsigned long mode, unsigned long test_mode) {
     return (mode & SGX_EDMM_MODE_MASK) == test_mode;

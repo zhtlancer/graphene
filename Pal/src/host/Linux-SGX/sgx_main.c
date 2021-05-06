@@ -360,7 +360,7 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
     }
 
     struct mem_area* aux_stack_area = NULL;
-    if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
+    if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_DEMAND)) {
         areas[area_num] = (struct mem_area) {
             .desc = "aux_stack",
             .skip_eextend = false,
@@ -449,7 +449,7 @@ static int initialize_enclave(struct pal_enclave* enclave, const char* manifest_
                 gs->sig_stack_high = sig_stack_areas[t].addr + ENCLAVE_SIG_STACK_SIZE;
                 gs->ssa = (void*)ssa_area->addr + enclave->ssa_frame_size * SSA_FRAME_NUM * t;
                 gs->gpr = gs->ssa + enclave->ssa_frame_size - sizeof(sgx_pal_gpr_t);
-                if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_LAZY)) {
+                if (is_sgx_edmm_mode(enclave->pal_sec.edmm_enable_heap, SGX_EDMM_MODE_DEMAND)) {
                     gs->gpr1 = gs->ssa + enclave->ssa_frame_size*2 - sizeof(sgx_pal_gpr_t);
                 }
                 gs->manifest_size = manifest_size;
