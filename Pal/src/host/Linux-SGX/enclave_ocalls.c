@@ -141,7 +141,6 @@ static long sgx_exitless_ocall(uint64_t code, void* ms) {
 }
 
 noreturn void ocall_exit(int exitcode, int is_exitgroup) {
-    enclave_page_print_stats();
     ms_ocall_exit_t* ms;
 
     sgx_prepare_ustack();

@@ -2,6 +2,34 @@
 #ifndef SGX_EDMM_H
 #define SGX_EDMM_H
 
+#include <stdint.h>
+
+#define PRINT_EDMM_MEM_STAT 1
+
+/* EDMM memory stats */
+struct edmm_mem_stat {
+    uint64_t alloc_cnt;
+    uint64_t alloc_size;
+    uint64_t alloc_max_size;
+    uint64_t free_cnt;
+    uint64_t free_size;
+    uint64_t freed_size;
+
+    uint64_t runtime_size;
+    uint64_t runtime_size_max;
+
+    uint64_t edmm_alloc_cnt;
+    uint64_t edmm_alloc_size;
+    uint64_t edmm_alloc_max_size;
+    uint64_t edmm_free_cnt;
+    uint64_t edmm_free_size;
+    uint64_t edmm_freed_size;
+
+    uint64_t edmm_runtime_size;
+    uint64_t edmm_runtime_size_max;
+};
+
+
 #define SGX_EDMM_MODE_MASK  (0xFUL)
 #define SGX_EDMM_MODE_NONE  (0x0UL)
 #define SGX_EDMM_MODE_NAIVE (0x1UL)
@@ -30,7 +58,7 @@ static inline int is_sgx_edmm_batch(unsigned long mode, unsigned long test_mode)
     return (mode & SGX_EDMM_BATCH_MASK) == test_mode;
 }
 
-#define EDMM_BITMAP_SIZE (128*1024)
+#define EDMM_BITMAP_SIZE (1024*1024)
 #define EDMM_BATCH_SIZE (64)
 #define PAGE_SHIFT (12)
 

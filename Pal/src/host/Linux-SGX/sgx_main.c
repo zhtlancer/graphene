@@ -48,6 +48,10 @@ char* g_libpal_path = NULL;
 
 struct pal_enclave g_pal_enclave;
 
+#if PRINT_EDMM_MEM_STAT
+struct edmm_mem_stat g_edmm_mem_stat;
+#endif
+
 /*
  * FIXME: the ELF-parsing functions in this file (scan_enclave_binary, load_enclave_binary) assume
  * that all the program headers will be found within first FILEBUF_SIZE bytes. This will be true for

@@ -18,6 +18,10 @@ static size_t g_zero_pages_size = 0;
 
 extern struct pal_enclave g_pal_enclave;
 
+#if PRINT_EDMM_MEM_STAT
+extern struct edmm_mem_stat g_edmm_mem_stat;
+#endif
+
 int open_sgx_driver(bool need_gsgx) {
     if (need_gsgx) {
         g_gsgx_device = INLINE_SYSCALL(open, 3, GSGX_FILE, O_RDWR | O_CLOEXEC, 0);
@@ -188,7 +192,7 @@ int create_enclave(sgx_arch_secs_t* secs, sgx_arch_token_t* token) {
     secs->attributes.flags |= SGX_FLAGS_INITIALIZED;
 
     if (!is_sgx_edmm_mode(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NONE)) {
-        addr = INLINE_SYSCALL(mmap, 6, NULL, 128 * 1024,
+        addr = INLINE_SYSCALL(mmap, 6, NULL, EDMM_BITMAP_SIZE,
                 PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
                 -1, 0);
         g_pal_enclave.pal_sec.bitmap_g = (void *)addr;
@@ -201,23 +205,23 @@ int create_enclave(sgx_arch_secs_t* secs, sgx_arch_token_t* token) {
             urts_log_error("Failed to open ws file (%d)\n", fd);
             return fd;
         }
-        addr = INLINE_SYSCALL(mmap, 6, NULL, 128 * 1024,
+        addr = INLINE_SYSCALL(mmap, 6, NULL, EDMM_BITMAP_SIZE,
                 PROT_READ|PROT_WRITE, MAP_SHARED,
                 fd, 0);
         g_pal_enclave.pal_sec.bitmap_w = (void *)addr;
     }
 
     if (is_sgx_edmm_batch(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_WS_TRAIN)) {
-        memset(g_pal_enclave.pal_sec.bitmap_w, 0, 128*1024);
+        memset(g_pal_enclave.pal_sec.bitmap_w, 0, EDMM_BITMAP_SIZE);
     }
 
     if (is_sgx_edmm_batch(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_BITMAP)
             || is_sgx_edmm_batch(g_pal_enclave.pal_sec.edmm_enable_heap, SGX_EDMM_BATCH_WS_USE)) {
-        addr = INLINE_SYSCALL(mmap, 6, NULL, 128 * 1024,
+        addr = INLINE_SYSCALL(mmap, 6, NULL, EDMM_BITMAP_SIZE,
                 PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
                 -1, 0);
         g_pal_enclave.pal_sec.bitmap_o = (void *)addr;
-        addr = INLINE_SYSCALL(mmap, 6, NULL, 128 * 1024,
+        addr = INLINE_SYSCALL(mmap, 6, NULL, EDMM_BITMAP_SIZE,
                 PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS,
                 -1, 0);
         g_pal_enclave.pal_sec.bitmap_i = (void *)addr;
@@ -225,6 +229,10 @@ int create_enclave(sgx_arch_secs_t* secs, sgx_arch_token_t* token) {
     urts_log_error("Enclave bitmaps: o %p i %p g %p w %p\n", g_pal_enclave.pal_sec.bitmap_o,
             g_pal_enclave.pal_sec.bitmap_i, g_pal_enclave.pal_sec.bitmap_g,
             g_pal_enclave.pal_sec.bitmap_w);
+
+#if PRINT_EDMM_MEM_STAT
+    g_pal_enclave.pal_sec.edmm_mem_stat = &g_edmm_mem_stat;
+#endif
 
     urts_log_debug("enclave created:\n");
     urts_log_debug("    base:           0x%016lx\n", secs->base);

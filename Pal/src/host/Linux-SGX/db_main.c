@@ -30,6 +30,11 @@
 #include "protected_files.h"
 #include "sysdeps/generic/ldsodefs.h"
 #include "toml.h"
+#include "sgx_edmm.h"
+
+#if PRINT_EDMM_MEM_STAT
+extern struct edmm_mem_stat *enclave_edmm_mem_stat;
+#endif
 
 #define RTLD_BOOTSTRAP
 #define _ENTRY enclave_entry
@@ -600,6 +605,10 @@ noreturn void pal_linux_main(char* uptr_libpal_uri, size_t libpal_uri_len, char*
     g_pal_sec.bitmap_o = sec_info.bitmap_o;
     g_pal_sec.bitmap_g = sec_info.bitmap_g;
     g_pal_sec.bitmap_w = sec_info.bitmap_w;
+
+#if PRINT_EDMM_MEM_STAT
+    enclave_edmm_mem_stat = sec_info.edmm_mem_stat;
+#endif
 
     /* For {p,u,g}ids we can at least do some minimal checking. */
 

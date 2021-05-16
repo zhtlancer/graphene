@@ -6,6 +6,7 @@
 
 #include "pal.h"
 #include "sgx_arch.h"
+#include "sgx_edmm.h"
 
 typedef char PAL_SEC_STR[255];
 
@@ -25,6 +26,9 @@ struct pal_sec {
     PAL_FLG edmm_enable_heap;
 
     PAL_PTR bitmap_o, bitmap_i, bitmap_g, bitmap_w;
+#if PRINT_EDMM_MEM_STAT
+    PAL_PTR edmm_mem_stat;
+#endif
 
     PAL_SEC_STR exec_name; // It's actually URI, not name. TODO: rename and migrate to LibOS.
 

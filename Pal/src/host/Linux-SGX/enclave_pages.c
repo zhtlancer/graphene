@@ -11,31 +11,8 @@
 #include "pal_linux.h"
 #include "pal_security.h"
 
-#define PRINT_ENCLAVE_MEM_STAT 1
-
-#if PRINT_ENCLAVE_MEM_STAT
-/* Enclave memory stats */
-uint64_t g_stats_alloc_cnt;
-uint64_t g_stats_alloc_size;
-uint64_t g_stats_alloc_max_size;
-uint64_t g_stats_free_cnt;
-uint64_t g_stats_free_size;
-uint64_t g_stats_freed_size;
-
-uint64_t g_stats_runtime_size;
-uint64_t g_stats_runtime_size_max;
-
-uint64_t g_stats_edmm_alloc_cnt;
-uint64_t g_stats_edmm_alloc_size;
-uint64_t g_stats_edmm_alloc_max_size;
-uint64_t g_stats_edmm_free_cnt;
-uint64_t g_stats_edmm_free_size;
-uint64_t g_stats_edmm_freed_size;
-
-uint64_t g_stats_edmm_runtime_size;
-uint64_t g_stats_edmm_runtime_size_max;
-
-static PAL_LOCK g_enclave_stats_lock = LOCK_INIT;
+#if PRINT_EDMM_MEM_STAT
+struct edmm_mem_stat *enclave_edmm_mem_stat;
 #endif
 
 
@@ -133,11 +110,11 @@ int free_edmm_page_range(void* start, size_t size) {
     int ret = 0;
 
     log_debug("%s: edmm free start_addr = %p, size = %lx\n", __func__, start, size);
-#if PRINT_ENCLAVE_MEM_STAT
-    __atomic_add_fetch(&g_stats_edmm_free_cnt, 1, __ATOMIC_SEQ_CST);
-    __atomic_add_fetch(&g_stats_edmm_free_size, size, __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+    __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_free_cnt, 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_free_size, size, __ATOMIC_SEQ_CST);
 
-    __atomic_sub_fetch(&g_stats_edmm_runtime_size, size, __ATOMIC_SEQ_CST);
+    __atomic_sub_fetch(&enclave_edmm_mem_stat->edmm_runtime_size, size, __ATOMIC_SEQ_CST);
 #endif
 
     alignas(64) sgx_arch_sec_info_t secinfo;
@@ -182,11 +159,11 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
     void* addr;
     int ret = 0;
 
-#if PRINT_ENCLAVE_MEM_STAT
-    __atomic_add_fetch(&g_stats_edmm_alloc_cnt, 1, __ATOMIC_SEQ_CST);
-    __atomic_add_fetch(&g_stats_edmm_alloc_size, size, __ATOMIC_SEQ_CST);
-    if (size > __atomic_load_n(&g_stats_edmm_alloc_max_size, __ATOMIC_SEQ_CST))
-        __atomic_store_n(&g_stats_edmm_alloc_max_size, size, __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+    __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_alloc_cnt, 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_alloc_size, size, __ATOMIC_SEQ_CST);
+    if (size > __atomic_load_n(&enclave_edmm_mem_stat->edmm_alloc_max_size, __ATOMIC_SEQ_CST))
+        __atomic_store_n(&enclave_edmm_mem_stat->edmm_alloc_max_size, size, __ATOMIC_SEQ_CST);
 
 #endif
 
@@ -246,10 +223,10 @@ int get_edmm_page_range(void* start, size_t size, bool executable) {
         }
         if (edmm_bitmap_is_set(g_pal_sec.bitmap_g, (unsigned long)addr))
             continue;
-#if PRINT_ENCLAVE_MEM_STAT
-        __atomic_add_fetch(&g_stats_edmm_runtime_size, g_page_size, __ATOMIC_SEQ_CST);
-        if (__atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_edmm_runtime_size_max, __ATOMIC_SEQ_CST))
-            __atomic_store_n(&g_stats_edmm_runtime_size_max, __atomic_load_n(&g_stats_edmm_runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+        __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_runtime_size, g_page_size, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&enclave_edmm_mem_stat->edmm_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&enclave_edmm_mem_stat->edmm_runtime_size_max, __ATOMIC_SEQ_CST))
+            __atomic_store_n(&enclave_edmm_mem_stat->edmm_runtime_size_max, __atomic_load_n(&enclave_edmm_mem_stat->edmm_runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
 #endif
         ret = sgx_accept(&secinfo, addr);
         if (ret) {
@@ -431,19 +408,19 @@ void* get_enclave_pages(void* addr, size_t size, bool is_pal_internal) {
             ret = __create_vma_and_merge(vma_above_bottom - size, size, is_pal_internal, vma_above);
     }
 
-#if PRINT_ENCLAVE_MEM_STAT
+#if PRINT_EDMM_MEM_STAT
     if (ret == NULL)
         goto out;
 
-    __atomic_add_fetch(&g_stats_alloc_cnt, 1, __ATOMIC_SEQ_CST);
-    __atomic_add_fetch(&g_stats_alloc_size, size, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->alloc_cnt, 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->alloc_size, size, __ATOMIC_SEQ_CST);
 
-    if (size > __atomic_load_n(&g_stats_alloc_max_size, __ATOMIC_SEQ_CST))
-        __atomic_store_n(&g_stats_alloc_max_size, size, __ATOMIC_SEQ_CST);
+    if (size > __atomic_load_n(&enclave_edmm_mem_stat->alloc_max_size, __ATOMIC_SEQ_CST))
+        __atomic_store_n(&enclave_edmm_mem_stat->alloc_max_size, size, __ATOMIC_SEQ_CST);
 
-    __atomic_add_fetch(&g_stats_runtime_size, size, __ATOMIC_SEQ_CST);
-    if (__atomic_load_n(&g_stats_runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&g_stats_runtime_size_max, __ATOMIC_SEQ_CST))
-        __atomic_store_n(&g_stats_runtime_size_max, __atomic_load_n(&g_stats_runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->runtime_size, size, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&enclave_edmm_mem_stat->runtime_size, __ATOMIC_SEQ_CST) > __atomic_load_n(&enclave_edmm_mem_stat->runtime_size_max, __ATOMIC_SEQ_CST))
+        __atomic_store_n(&enclave_edmm_mem_stat->runtime_size_max, __atomic_load_n(&enclave_edmm_mem_stat->runtime_size, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
 #endif
 
 out:
@@ -471,9 +448,9 @@ int free_enclave_pages(void* addr, size_t size) {
     if (!size)
         return -PAL_ERROR_NOMEM;
 
-#if PRINT_ENCLAVE_MEM_STAT
-    __atomic_add_fetch(&g_stats_free_cnt, 1, __ATOMIC_SEQ_CST);
-    __atomic_add_fetch(&g_stats_free_size, size, __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+    __atomic_add_fetch(&enclave_edmm_mem_stat->free_cnt, 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&enclave_edmm_mem_stat->free_size, size, __ATOMIC_SEQ_CST);
 #endif
 
     size = ALIGN_UP(size, g_page_size);
@@ -485,10 +462,6 @@ int free_enclave_pages(void* addr, size_t size) {
 
     struct heap_vma* vma;
     struct heap_vma* p;
-
-#if PRINT_ENCLAVE_MEM_STAT
-    size_t __freed = 0;
-#endif
 
     if (is_sgx_edmm_mode(g_pal_sec.edmm_enable_heap, SGX_EDMM_MODE_NONE)
             || is_sgx_edmm_mempool(g_pal_sec.edmm_enable_heap, SGX_EDMM_MEMPOOL_NOFREE)) {
@@ -515,8 +488,8 @@ int free_enclave_pages(void* addr, size_t size) {
         }
 
         size_t free_size = tmp_addr - free_addr;
-#if PRINT_ENCLAVE_MEM_STAT
-        __atomic_add_fetch(&g_stats_edmm_freed_size, free_size, __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+        __atomic_add_fetch(&enclave_edmm_mem_stat->edmm_freed_size, free_size, __ATOMIC_SEQ_CST);
 #endif
 
         //log_error("%s:%d free_addr %p end_addr %p free_size %lu\n", __func__, __LINE__, free_addr, tmp_addr, free_size);
@@ -580,9 +553,9 @@ skip_edmm_free:
         }
     }
 
-#if PRINT_ENCLAVE_MEM_STAT
-    __atomic_add_fetch(&g_stats_freed_size, freed, __ATOMIC_SEQ_CST);
-    __atomic_sub_fetch(&g_stats_runtime_size, freed, __ATOMIC_SEQ_CST);
+#if PRINT_EDMM_MEM_STAT
+    __atomic_add_fetch(&enclave_edmm_mem_stat->freed_size, freed, __ATOMIC_SEQ_CST);
+    __atomic_sub_fetch(&enclave_edmm_mem_stat->runtime_size, freed, __ATOMIC_SEQ_CST);
 #endif
 
     __atomic_sub_fetch(&g_allocated_pages.counter, freed / g_page_size, __ATOMIC_SEQ_CST);
@@ -650,29 +623,3 @@ out:
     return addr;
 }
 
-void enclave_page_print_stats(void)
-{
-#if PRINT_ENCLAVE_MEM_STAT
-    _DkInternalLock(&g_enclave_stats_lock);
-
-    log_error("----- Enclave Memory stats -----\n"
-            "  enclave_runtime (KiB)        | edmm_runtime:         %8lu | %8lu\n"
-            "  enclave_runtime_max (KiB)    | edmm_runtime_max:     %8lu | %8lu\n"
-            "  enclave_alloc_cnt            | edmm_alloc_cnt:       %8lu | %8lu\n"
-            "  enclave_alloc_size (KiB)     | edmm_alloc_size:      %8lu | %8lu\n"
-            "  enclave_alloc_max_size (KiB) | edmm_alloc_max_size:  %8lu | %8lu\n"
-            "  enclave_free_cnt             | edmm_free_cnt:        %8lu | %8lu\n"
-            "  enclave_free_size (KiB)      | edmm_free_size:       %8lu | %8lu\n"
-            "  enclave_freed_size (KiB)     | edmm_freed_size:      %8lu | %8lu\n",
-            (g_stats_runtime_size)/1024, (g_stats_edmm_runtime_size)/1024,
-            (g_stats_runtime_size_max)/1024, (g_stats_edmm_runtime_size_max)/1024,
-            (g_stats_alloc_cnt), (g_stats_edmm_alloc_cnt),
-            (g_stats_alloc_size)/1024, (g_stats_edmm_alloc_size)/1024,
-            (g_stats_alloc_max_size)/1024, (g_stats_edmm_alloc_max_size)/1024,
-            (g_stats_free_cnt), (g_stats_edmm_free_cnt),
-            (g_stats_free_size)/1024, (g_stats_edmm_free_size)/1024,
-            (g_stats_freed_size)/1024, (g_stats_edmm_freed_size)/1024
-            );
-    _DkInternalUnlock(&g_enclave_stats_lock);
-#endif
-}

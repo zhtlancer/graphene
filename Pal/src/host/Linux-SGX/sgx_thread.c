@@ -19,6 +19,12 @@
 #include "sgx_log.h"
 #include "spinlock.h"
 
+#include "sgx_edmm.h"
+
+#if PRINT_EDMM_MEM_STAT
+struct edmm_mem_stat g_edmm_mem_stat;
+#endif
+
 struct thread_map {
     unsigned int    tid;
     sgx_arch_tcs_t* tcs;
@@ -29,6 +35,38 @@ static int g_enclave_thread_num;
 static struct thread_map* g_enclave_thread_map;
 
 bool g_sgx_enable_stats = false;
+
+#if PRINT_EDMM_MEM_STAT
+void print_edmm_mem_stats(void);
+void print_edmm_mem_stats(void) {
+    pal_printf("----- EDMM Memory stats -----\n"
+            "  enclave_runtime (KiB)        | edmm_runtime:         %8lu | %8lu\n"
+            "  enclave_runtime_max (KiB)    | edmm_runtime_max:     %8lu | %8lu\n"
+            "  enclave_alloc_cnt            | edmm_alloc_cnt:       %8lu | %8lu\n"
+            "  enclave_alloc_size (KiB)     | edmm_alloc_size:      %8lu | %8lu\n"
+            "  enclave_alloc_max_size (KiB) | edmm_alloc_max_size:  %8lu | %8lu\n"
+            "  enclave_free_cnt             | edmm_free_cnt:        %8lu | %8lu\n"
+            "  enclave_free_size (KiB)      | edmm_free_size:       %8lu | %8lu\n"
+            "  enclave_freed_size (KiB)     | edmm_freed_size:      %8lu | %8lu\n",
+            (g_edmm_mem_stat.runtime_size)/1024,
+            (g_edmm_mem_stat.edmm_runtime_size)/1024,
+            (g_edmm_mem_stat.runtime_size_max)/1024,
+            (g_edmm_mem_stat.edmm_runtime_size_max)/1024,
+            (g_edmm_mem_stat.alloc_cnt),
+            (g_edmm_mem_stat.edmm_alloc_cnt),
+            (g_edmm_mem_stat.alloc_size)/1024,
+            (g_edmm_mem_stat.edmm_alloc_size)/1024,
+            (g_edmm_mem_stat.alloc_max_size)/1024,
+            (g_edmm_mem_stat.edmm_alloc_max_size)/1024,
+            (g_edmm_mem_stat.free_cnt),
+            (g_edmm_mem_stat.edmm_free_cnt),
+            (g_edmm_mem_stat.free_size)/1024,
+            (g_edmm_mem_stat.edmm_free_size)/1024,
+            (g_edmm_mem_stat.freed_size)/1024,
+            (g_edmm_mem_stat.edmm_freed_size)/1024
+            );
+}
+#endif
 
 /* this function is called only on thread/process exit (never in the middle of thread exec) */
 void update_and_print_stats(bool process_wide) {
@@ -72,6 +110,9 @@ void update_and_print_stats(bool process_wide) {
                    "  # of async signals:  %lu\n",
                    pid, g_eenter_cnt, g_eexit_cnt, g_aex_cnt,
                    g_sync_signal_cnt, g_async_signal_cnt);
+#if PRINT_EDMM_MEM_STAT
+        print_edmm_mem_stats();
+#endif
     }
 }
 
